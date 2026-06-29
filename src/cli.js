@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { getAgentVersion, resolveAgentConfig, runAgentStep } from './agent.js';
 import { loadConfig, getPipeline } from './config.js';
 import { cleanRuns } from './clean.js';
+import { runDoctor } from './doctor.js';
 import { ensureDir, harnessRoot, readText, timestampId, writeText } from './fs-utils.js';
 import { installIdeTask } from './ide.js';
 import { renderPrompt } from './prompt.js';
@@ -14,6 +15,7 @@ function usage() {
     '  harness run --repo <path> [--pipeline <name>] [--agent <provider>] "<request>"',
     '  harness install-ide-task --repo <path>',
     '  harness init-project --repo <path>',
+    '  harness doctor [--repo <path>] [--agent <provider>]',
     '  harness clean [--days <n>] [--keep <n>] [--dry-run]',
     '',
     'Examples:',
@@ -285,6 +287,14 @@ export async function main(args) {
     const repo = requireRepo(parsed.options.repo || process.cwd());
     const configPath = await initProject(repo);
     console.log(`Project harness config: ${configPath}`);
+    return;
+  }
+
+  if (parsed.command === 'doctor') {
+    await runDoctor({
+      repo: parsed.options.repo || process.cwd(),
+      agent: parsed.options.agent || null
+    });
     return;
   }
 

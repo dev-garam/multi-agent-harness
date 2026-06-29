@@ -23,6 +23,24 @@ node ./bin/harness run --repo /path/to/project --pipeline review_only --agent co
 
 `--dry-run`은 실제 에이전트를 실행하지 않고 프롬프트와 manifest 생성만 확인합니다.
 
+## Codex CLI 연결
+
+하네스를 전역 CLI로 연결하면 Codex 세션이나 일반 터미널에서 같은 명령을 사용할 수 있습니다.
+
+```sh
+npm link
+harness doctor --repo /path/to/project --agent codex
+harness run --repo /path/to/project --pipeline code_fix --agent codex "작업 요청"
+```
+
+Codex에게는 다음처럼 요청하면 됩니다.
+
+```text
+harness run --repo . --pipeline safe_fix --agent codex "이 변경을 안전하게 처리해줘"
+```
+
+연결 상태는 언제든 `harness doctor`로 확인합니다.
+
 ## 프로젝트 설정
 
 대상 프로젝트 루트에 `.harness.json`을 둘 수 있습니다.
