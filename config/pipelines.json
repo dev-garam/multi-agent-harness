@@ -1,0 +1,98 @@
+{
+  "defaultPipeline": "code_fix",
+  "pipelines": {
+    "quick_fix": {
+      "description": "Edit, validate, and report with minimal orchestration.",
+      "validationAfter": ["coder"],
+      "steps": [
+        {
+          "id": "coder",
+          "prompt": "prompts/coder.md",
+          "sandbox": "workspace-write"
+        },
+        {
+          "id": "reporter",
+          "prompt": "prompts/reporter.md",
+          "sandbox": "read-only"
+        }
+      ]
+    },
+    "code_fix": {
+      "description": "Plan, edit, validate, review, and report on a normal code change.",
+      "validationAfter": ["coder"],
+      "steps": [
+        {
+          "id": "planner",
+          "prompt": "prompts/planner.md",
+          "sandbox": "read-only"
+        },
+        {
+          "id": "coder",
+          "prompt": "prompts/coder.md",
+          "sandbox": "workspace-write"
+        },
+        {
+          "id": "qa",
+          "prompt": "prompts/qa.md",
+          "sandbox": "read-only"
+        },
+        {
+          "id": "reporter",
+          "prompt": "prompts/reporter.md",
+          "sandbox": "read-only"
+        }
+      ]
+    },
+    "safe_fix": {
+      "description": "Plan, edit, validate, QA, verify claims, and report for higher-risk changes.",
+      "validationAfter": ["coder"],
+      "steps": [
+        {
+          "id": "planner",
+          "prompt": "prompts/planner.md",
+          "sandbox": "read-only"
+        },
+        {
+          "id": "coder",
+          "prompt": "prompts/coder.md",
+          "sandbox": "workspace-write"
+        },
+        {
+          "id": "qa",
+          "prompt": "prompts/qa.md",
+          "sandbox": "read-only"
+        },
+        {
+          "id": "verifier",
+          "prompt": "prompts/verifier.md",
+          "sandbox": "read-only"
+        },
+        {
+          "id": "reporter",
+          "prompt": "prompts/reporter.md",
+          "sandbox": "read-only"
+        }
+      ]
+    },
+    "review_only": {
+      "description": "Review, verify claims, and report without editing files.",
+      "steps": [
+        {
+          "id": "reviewer",
+          "prompt": "prompts/reviewer.md",
+          "sandbox": "read-only"
+        },
+        {
+          "id": "verifier",
+          "prompt": "prompts/verifier.md",
+          "sandbox": "read-only"
+        },
+        {
+          "id": "reporter",
+          "prompt": "prompts/reporter.md",
+          "sandbox": "read-only"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Runtime output
+runs/
+*.log
+*.jsonl
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local harness/project overrides
+.harness.local.json
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Coverage and build artifacts
+coverage/
+dist/
+build/
+tmp/
+temp/
+
+# Package manager cache/debug output
+.npm/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

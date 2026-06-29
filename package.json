@@ -1,0 +1,16 @@
+{
+  "name": "agent-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "harness": "./bin/harness"
+  },
+  "scripts": {
+    "harness": "node ./bin/harness",
+    "check": "node --check ./bin/harness && node --check ./src/cli.js && node --check ./src/agent.js && node --check ./src/config.js && node --check ./src/fs-utils.js && node --check ./src/ide.js && node --check ./src/prompt.js && node --check ./src/clean.js && node --check ./src/validation.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
