@@ -14,10 +14,8 @@ const defaultProviders = {
         repo,
         '--sandbox',
         step.sandbox || 'read-only',
-        '--ask-for-approval',
-        step.approval || 'never',
         '--json',
-        '-o',
+        '--output-last-message',
         finalPath
       ];
 
