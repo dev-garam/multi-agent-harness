@@ -13,10 +13,11 @@ function parseRunTimestamp(name) {
   return new Date(`${match.groups.date}T${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}.${ms}`);
 }
 
-export async function cleanRuns({ days = 7, keep = 5, dryRun = false } = {}) {
+export async function cleanRuns({ days = 7, keep = 5, dryRun = false, exclude = [] } = {}) {
   const runsDir = path.join(harnessRoot, 'runs');
   const trashDir = path.join(runsDir, '.trash');
   await ensureDir(trashDir);
+  const excludedRuns = new Set(exclude);
 
   const entries = await readdir(runsDir, { withFileTypes: true });
   const cutoff = Date.now() - Number(days) * 24 * 60 * 60 * 1000;
@@ -28,8 +29,9 @@ export async function cleanRuns({ days = 7, keep = 5, dryRun = false } = {}) {
 
   const protectedRuns = new Set(runDirs.slice(0, Number(keep)).map((entry) => entry.name));
   const targets = runDirs.filter((entry) => {
-    return !protectedRuns.has(entry.name) && entry.timestamp.getTime() < cutoff;
+    return !excludedRuns.has(entry.name) && !protectedRuns.has(entry.name) && entry.timestamp.getTime() < cutoff;
   });
+  const moved = [];
 
   for (const target of targets) {
     const from = path.join(runsDir, target.name);
@@ -40,9 +42,20 @@ export async function cleanRuns({ days = 7, keep = 5, dryRun = false } = {}) {
       await rename(from, to);
       console.log(`moved ${from} -> ${to}`);
     }
+    moved.push({ from, to, dryRun });
   }
 
   if (targets.length === 0) {
     console.log('No runs matched clean criteria.');
   }
+
+  return {
+    status: 'succeeded',
+    days: Number(days),
+    keep: Number(keep),
+    dryRun: Boolean(dryRun),
+    excludedRuns: [...excludedRuns],
+    matched: targets.length,
+    moved
+  };
 }

@@ -23,5 +23,8 @@ Project harness config:
 Harness validation commands:
 {{VALIDATION_COMMANDS}}
 
+Supervisor instructions:
+{{SUPERVISOR_INSTRUCTIONS}}
+
 Previous step outputs:
 {{PREVIOUS_OUTPUTS}}

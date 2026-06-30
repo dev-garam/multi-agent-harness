@@ -2,13 +2,18 @@
   "defaultPipeline": "code_fix",
   "pipelines": {
     "quick_fix": {
-      "description": "Edit, validate, and report with minimal orchestration.",
+      "description": "Edit, validate, supervise, and report with minimal orchestration.",
       "validationAfter": ["coder"],
       "steps": [
         {
           "id": "coder",
           "prompt": "prompts/coder.md",
           "sandbox": "workspace-write"
+        },
+        {
+          "id": "hermes",
+          "prompt": "prompts/hermes.md",
+          "sandbox": "read-only"
         },
         {
           "id": "reporter",
@@ -18,7 +23,7 @@
       ]
     },
     "code_fix": {
-      "description": "Plan, edit, validate, review, and report on a normal code change.",
+      "description": "Plan, edit, validate, review, supervise, and report on a normal code change.",
       "validationAfter": ["coder"],
       "steps": [
         {
@@ -34,6 +39,11 @@
         {
           "id": "qa",
           "prompt": "prompts/qa.md",
+          "sandbox": "read-only"
+        },
+        {
+          "id": "hermes",
+          "prompt": "prompts/hermes.md",
           "sandbox": "read-only"
         },
         {
@@ -44,7 +54,7 @@
       ]
     },
     "safe_fix": {
-      "description": "Plan, edit, validate, QA, verify claims, and report for higher-risk changes.",
+      "description": "Plan, edit, validate, QA, verify claims, supervise, and report for higher-risk changes.",
       "validationAfter": ["coder"],
       "steps": [
         {
@@ -68,6 +78,11 @@
           "sandbox": "read-only"
         },
         {
+          "id": "hermes",
+          "prompt": "prompts/hermes.md",
+          "sandbox": "read-only"
+        },
+        {
           "id": "reporter",
           "prompt": "prompts/reporter.md",
           "sandbox": "read-only"
@@ -75,7 +90,7 @@
       ]
     },
     "review_only": {
-      "description": "Review, verify claims, and report without editing files.",
+      "description": "Review, verify claims, supervise, and report without editing files.",
       "steps": [
         {
           "id": "reviewer",
@@ -85,6 +100,11 @@
         {
           "id": "verifier",
           "prompt": "prompts/verifier.md",
+          "sandbox": "read-only"
+        },
+        {
+          "id": "hermes",
+          "prompt": "prompts/hermes.md",
           "sandbox": "read-only"
         },
         {

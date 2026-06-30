@@ -78,9 +78,9 @@ function providerFromConfig(agentConfig = {}) {
 
   return {
     name: providerName,
-    command: agentConfig.command || base.command,
-    versionArgs: agentConfig.versionArgs || base.versionArgs || ['--version'],
-    outputMode: agentConfig.outputMode || base.outputMode || 'stdout',
+    command: agentConfig.command || base?.command,
+    versionArgs: agentConfig.versionArgs || base?.versionArgs || ['--version'],
+    outputMode: agentConfig.outputMode || base?.outputMode || 'stdout',
     args: agentConfig.args,
     base
   };
