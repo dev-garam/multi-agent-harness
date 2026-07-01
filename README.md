@@ -46,6 +46,7 @@ node ./bin/harness run --repo . --pipeline safe_fix --dry-run "Hermes 동작 확
 ```sh
 harness run --repo <path> [--pipeline <name>] [--agent <provider>] "<request>"
 harness doctor [--repo <path>] [--agent <provider>]
+harness hermes <status|plan|enqueue|queue|tick|memory|feedback|promote|report> [request]
 harness init-project --repo <path>
 harness install-ide-task --repo <path>
 harness watch [--interval <ms>] [--once] [--include-existing]
@@ -54,6 +55,7 @@ harness clean [--days <n>] [--keep <n>] [--dry-run]
 
 - `run`: 파이프라인을 실행합니다.
 - `doctor`: 에이전트 CLI 연결 상태를 확인합니다.
+- `hermes`: Hermes top-level 운영 명령을 실행합니다.
 - `init-project`: 대상 프로젝트에 `.harness.json` 기본 파일을 만듭니다.
 - `install-ide-task`: 대상 프로젝트의 `.vscode/tasks.json`에 `Harness: Run` 작업을 추가합니다.
 - `watch`: `runs/`의 manifest 변화를 관찰하며 run, step, validation, Hermes decision, 완료 상태를 터미널에 표시합니다.
@@ -101,6 +103,49 @@ Hermes 출력의 마지막에는 아래 형식의 fenced JSON block이 있어야
 
 하네스는 decision schema를 검증합니다. 파싱할 수 없거나 지원하지 않는 액션이면 `request_human_review`로 처리하고 manifest에 schema 오류를 남깁니다.
 
+## Hermes Command Layer
+
+Hermes를 pipeline 내부 supervisor step이 아니라 top-level 운영 명령으로도 사용할 수 있습니다.
+
+```sh
+harness hermes status
+harness hermes plan "인증 로직을 안전하게 수정해줘"
+harness hermes enqueue --repo . --pipeline quick_fix "작업 요청"
+harness hermes queue
+harness hermes tick
+harness hermes memory rebuild
+harness hermes memory search "인증"
+harness hermes feedback --run <runId> --rating good "요약과 검증이 좋았음"
+harness hermes promote --dry-run
+harness hermes promote --apply
+harness hermes report
+```
+
+- `status`: 최근 `runs/` manifest를 읽어 성공/실패 상태, Hermes decision, validation 실패, cleanup 상태를 요약합니다.
+- `plan`: 요청을 실행하지 않고 rule-based preflight로 pipeline과 agent 전략을 추천합니다.
+- `enqueue`: 파일 기반 task queue에 작업을 추가합니다.
+- `queue`: pending/running/done/failed task 상태를 요약합니다.
+- `tick`: pending task 하나를 꺼내 `harness run`으로 실행하고 done/failed로 이동합니다. 대상 repo가 보호 브랜치면 실행하지 않고 사람 검토가 필요한 failed task로 이동합니다.
+- `memory rebuild`: `runs/` manifest를 `.harness/memory/runs.jsonl`과 repo 요약으로 재생성합니다.
+- `memory search`: memory index에서 요청, repo, pipeline, status, Hermes action 기준으로 검색합니다.
+- `feedback`: 특정 run에 대한 사용자 평가를 저장하고 memory rebuild 시 plan 근거에 반영합니다.
+- `promote`: 반복되는 safe_fix 승격, validation 실패, bad feedback을 설정/policy/prompt 개선 후보로 승격합니다. `--dry-run`은 제안만 출력하고, `--apply`는 promotion 기록과 `.harness.json` 후보 변경을 담은 patch artifact를 `.harness/promotions/`에 남깁니다.
+- `report`: 현재 Hermes 운영 상태를 terminal에 요약하고 markdown 리포트를 `.harness/reports/`에 남깁니다.
+
+`plan`은 사람이 읽을 수 있는 요약과 함께 machine-readable JSON을 출력합니다. memory index가 있고 `--repo`를 함께 넘기면 과거 run과 repo profile을 근거로 추천을 보강합니다.
+
+```sh
+harness hermes memory rebuild
+harness hermes plan --repo /path/to/project "인증 로직을 안전하게 수정해줘"
+```
+
+task queue는 하네스 루트의 `.harness/queue/` 아래에 저장됩니다. 이 디렉터리는 로컬 운영 상태이므로 커밋 대상이 아닙니다.
+memory index는 하네스 루트의 `.harness/memory/` 아래에 저장됩니다. `runs/`를 원자료로 다시 만들 수 있는 파생 데이터입니다.
+feedback은 하네스 루트의 `.harness/feedback/` 아래에 저장됩니다. `bad` feedback이 있는 유사 run은 이후 plan에서 caution evidence로 표시됩니다.
+promotion 기록은 하네스 루트의 `.harness/promotions/` 아래에 저장됩니다. `--apply`도 프로젝트 설정과 prompt를 직접 수정하지 않고, 대상 repo에서 검토 후 적용할 수 있는 `.harness.json` 후보 diff와 promotion marker 파일 diff를 `.patch`로 함께 남깁니다.
+report artifact는 하네스 루트의 `.harness/reports/` 아래에 저장됩니다. `hermes tick`은 idle, done, failed 결과마다 tick report를 자동으로 남깁니다.
+외부 알림은 `hermes.notifications.channels`에 adapter를 설정하면 `tick` 결과와 report path를 전송합니다. env key가 없으면 실패하지 않고 skipped로 기록됩니다.
+
 ## 프로젝트 설정
 
 대상 프로젝트 루트에 `.harness.json`을 둘 수 있습니다.
@@ -126,7 +171,8 @@ Hermes 출력의 마지막에는 아래 형식의 fenced JSON block이 있어야
     "enabled": false,
     "days": 7,
     "keep": 20
-  }
+  },
+  "protectedBranches": ["main", "production"]
 }
 ```
 
@@ -161,6 +207,53 @@ node ./bin/harness run --repo /path/to/project --agent claude "작업 요청"
 ```
 
 validation 명령이 하나도 없으면 manifest에 `skipped`로 기록됩니다.
+
+### Protected Branch 설정
+
+Hermes `tick`은 task를 실행하기 직전에 대상 repo의 현재 git branch를 확인합니다. 현재 branch가 `protectedBranches`에 포함되면 자동 실행하지 않고 failed task로 이동하며 사람 검토가 필요하다고 보고합니다.
+
+```json
+{
+  "protectedBranches": ["main", "production"]
+}
+```
+
+설정이 없으면 기본값으로 `main`, `production`을 보호 브랜치로 봅니다. git branch를 확인할 수 없는 repo에서는 이 정책만으로 실행을 막지 않습니다.
+
+### Notification 설정
+
+Hermes는 기본적으로 terminal과 markdown report를 사용합니다. 외부 alert 채널은 `.harness.json`에 adapter 구조만 설정해두고, 실제 URL이나 토큰은 환경변수로 주입합니다.
+
+```json
+{
+  "hermes": {
+    "notifications": {
+      "channels": [
+        {
+          "name": "harness-alerts",
+          "type": "webhook",
+          "urlEnv": "HERMES_ALERT_WEBHOOK_URL",
+          "events": ["tick.failed"]
+        },
+        {
+          "name": "team-slack",
+          "type": "slack",
+          "urlEnv": "HERMES_SLACK_WEBHOOK_URL",
+          "events": ["tick.failed", "tick.done"]
+        }
+      ]
+    }
+  }
+}
+```
+
+지원되는 초기 adapter type은 `webhook`, `slack`, `discord`입니다.
+
+- `webhook`: Hermes event payload를 JSON으로 POST합니다.
+- `slack`: Slack incoming webhook 형식으로 text를 보냅니다.
+- `discord`: Discord webhook 형식으로 content를 보냅니다.
+
+채널 env가 없거나 event가 구독 대상이 아니면 Hermes는 알림을 보내지 않고 `Notifications: skipped ...`로 보고합니다.
 
 ### Supervisor 설정
 

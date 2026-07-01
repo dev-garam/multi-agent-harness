@@ -10,6 +10,7 @@ import { installIdeTask } from './ide.js';
 import { renderPrompt } from './prompt.js';
 import { runValidationCommand, validationCommandsFromProjectConfig } from './validation.js';
 import { runWatch } from './watch.js';
+import { runHermesCommand } from './hermes.js';
 
 const HERMES_STEP_ID = 'hermes';
 const DEFAULT_MAX_SUPERVISOR_TURNS = 3;
@@ -36,6 +37,7 @@ function usage() {
     '  harness install-ide-task --repo <path>',
     '  harness init-project --repo <path>',
     '  harness doctor [--repo <path>] [--agent <provider>]',
+    '  harness hermes <status|plan|enqueue|queue|tick|memory|feedback|promote|report> [request]',
     '  harness watch [--interval <ms>] [--once] [--include-existing]',
     '  harness clean [--days <n>] [--keep <n>] [--dry-run]',
     '',
@@ -60,6 +62,8 @@ function parseArgs(args) {
       options.agent = args[++index];
     } else if (arg === '--dry-run') {
       options.dryRun = true;
+    } else if (arg === '--apply') {
+      options.apply = true;
     } else if (arg === '--days') {
       options.days = args[++index];
     } else if (arg === '--keep') {
@@ -70,6 +74,12 @@ function parseArgs(args) {
       options.once = true;
     } else if (arg === '--include-existing') {
       options.includeExisting = true;
+    } else if (arg === '--limit') {
+      options.limit = args[++index];
+    } else if (arg === '--run') {
+      options.run = args[++index];
+    } else if (arg === '--rating') {
+      options.rating = args[++index];
     } else {
       positionals.push(arg);
     }
@@ -761,6 +771,19 @@ export async function main(args) {
       repo: parsed.options.repo || process.cwd(),
       agent: parsed.options.agent || null
     });
+    return;
+  }
+
+  if (parsed.command === 'hermes') {
+    const hermesArgs = parsed.request ? parsed.request.split(' ') : [];
+    const subcommand = hermesArgs.shift() || 'status';
+    const hermesRequest = hermesArgs.join(' ').trim();
+    const output = await runHermesCommand({
+      subcommand,
+      request: hermesRequest,
+      options: parsed.options
+    });
+    console.log(output);
     return;
   }
 
