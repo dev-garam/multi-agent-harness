@@ -9,6 +9,7 @@ import { ensureDir, harnessRoot, readText, timestampId, writeText } from './fs-u
 import { installIdeTask } from './ide.js';
 import { renderPrompt } from './prompt.js';
 import { runValidationCommand, validationCommandsFromProjectConfig } from './validation.js';
+import { runWatch } from './watch.js';
 
 const HERMES_STEP_ID = 'hermes';
 const DEFAULT_MAX_SUPERVISOR_TURNS = 3;
@@ -35,6 +36,7 @@ function usage() {
     '  harness install-ide-task --repo <path>',
     '  harness init-project --repo <path>',
     '  harness doctor [--repo <path>] [--agent <provider>]',
+    '  harness watch [--interval <ms>] [--once] [--include-existing]',
     '  harness clean [--days <n>] [--keep <n>] [--dry-run]',
     '',
     'Examples:',
@@ -62,6 +64,12 @@ function parseArgs(args) {
       options.days = args[++index];
     } else if (arg === '--keep') {
       options.keep = args[++index];
+    } else if (arg === '--interval') {
+      options.interval = args[++index];
+    } else if (arg === '--once') {
+      options.once = true;
+    } else if (arg === '--include-existing') {
+      options.includeExisting = true;
     } else {
       positionals.push(arg);
     }
@@ -761,6 +769,15 @@ export async function main(args) {
       days: parsed.options.days ?? 7,
       keep: parsed.options.keep ?? 5,
       dryRun: parsed.options.dryRun
+    });
+    return;
+  }
+
+  if (parsed.command === 'watch') {
+    await runWatch({
+      interval: parsed.options.interval ?? 1000,
+      once: Boolean(parsed.options.once),
+      includeExisting: Boolean(parsed.options.includeExisting)
     });
     return;
   }
