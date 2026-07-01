@@ -10,6 +10,7 @@
 - **Pipeline**: 요청 성격에 따라 planner, coder, qa, verifier, hermes, reporter 같은 역할을 순서대로 실행합니다.
 - **Validation**: 대상 프로젝트의 `.harness.json`에 정의한 build/test/validation 명령을 하네스가 직접 실행합니다.
 - **Hermes supervisor**: 작업자 결과와 검증 결과를 읽고 다음 행동을 결정하는 감독관 에이전트입니다.
+- **Hermes operator**: task queue, memory, policy, feedback, promotion, report를 관리하는 top-level 운영 명령입니다.
 - **Manifest**: run마다 요청, 설정, git 상태, 단계 결과, Hermes 결정, cleanup 결과를 `runs/<runId>/manifest.json`에 남깁니다.
 - **Runs archive**: prompt, stdout/stderr 로그, 최종 markdown 산출물을 `runs/` 아래에 보관합니다.
 
@@ -40,6 +41,16 @@ harness run --repo /path/to/project --pipeline safe_fix --agent codex "검증까
 ```sh
 node ./bin/harness run --repo . --pipeline safe_fix --dry-run "Hermes 동작 확인"
 ```
+
+Hermes를 top-level 운영자로 사용할 수도 있습니다.
+
+```sh
+harness hermes enqueue --repo . --pipeline quick_fix "작업 요청"
+harness hermes tick
+harness hermes report
+```
+
+설계와 진행 이력은 [docs/Hermes Autonomous Operations Roadmap](docs/hermes-autonomy-roadmap.md)에 정리되어 있습니다.
 
 ## 명령어
 
