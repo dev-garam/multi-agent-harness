@@ -15,6 +15,7 @@
 현재 문서:
 
 - [Hermes Autonomous Operations Roadmap](./hermes-autonomy-roadmap.md)
+- [Hermes Harness Architecture Diagram](./diagrams/hermes-harness-architecture.puml)
 
 향후 문서가 늘어나면 아래 구조로 분기합니다.
 
@@ -22,6 +23,7 @@
 docs/
   README.md
   hermes-autonomy-roadmap.md
+  diagrams/
   research/
   decisions/
   milestones/

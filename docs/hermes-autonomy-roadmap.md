@@ -8,6 +8,8 @@ Status: completed
 
 이 문서에 남아 있는 hardening 항목은 필수 미완료 작업이 아니라, 운영 품질을 더 높이기 위한 선택 확장 후보입니다.
 
+구조도는 [Hermes Harness Architecture Diagram](./diagrams/hermes-harness-architecture.puml)에 있습니다.
+
 ## 완료된 목표 상태
 
 1차 로드맵 완료 후 구조는 다음과 같습니다.

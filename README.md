@@ -52,6 +52,12 @@ harness hermes report
 
 설계와 진행 이력은 [docs/Hermes Autonomous Operations Roadmap](docs/hermes-autonomy-roadmap.md)에 정리되어 있습니다.
 
+## 구조도
+
+![하네스 / 헤르메스 에이전트 구조](./docs/diagrams/hermes_harness_architecture.png)
+
+이 구조도는 하네스 밖에서 작업을 접수하고 실행 여부를 결정하는 **Hermes operator**와, 파이프라인 내부에서 작업자 결과와 검증 결과를 판단하는 **Hermes supervisor**를 구분해서 보여줍니다. 원본 PlantUML 파일은 [docs/diagrams/hermes-harness-architecture.puml](docs/diagrams/hermes-harness-architecture.puml)에 있습니다.
+
 ## 명령어
 
 ```sh
