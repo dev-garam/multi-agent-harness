@@ -30,6 +30,8 @@ runs/<runId>/manifest.json
 - `completedPipeline`: 최종 pipeline
 - `dryRun`: dry-run 여부
 - `workspace`: workspace mode와 patch/worktree 정보
+- `runtime`: selected runner와 runner contract
+- `promptCache`: prompt/static context cache artifact metadata
 - `policy`: policy config, request preflight decision, protected branch decision
 - `trustBoundary`: local-first 신뢰 경계 요약
 - `validationCommands`: 하네스가 실행한 validation 명령 목록
@@ -163,9 +165,34 @@ This object is intended for debugging and downstream evaluation. Hook event name
 
 Agent step entries may include:
 
-- `usage`: best-effort provider token/cost usage. If the provider log format is not recognized, `usage.status` is `unknown`.
+- `usage`: best-effort provider token/cost usage with `provider` and `adapter`. If the provider log format is not recognized, `usage.status` is `unknown`.
 - `retryable` and `retryReason`: classifier output used by retry/fallback middleware.
 - `stderrTail`: short stderr tail used for retry classification. Full logs remain in `stderrPath`.
+
+## Prompt Cache
+
+Each run writes `prompt-cache.json` and references it from `manifest.promptCache`.
+
+```json
+{
+  "schemaVersion": 1,
+  "strategy": "static-context-hash",
+  "reusable": true,
+  "cacheKey": "sha256...",
+  "staticContextHash": "sha256...",
+  "templates": [
+    {
+      "stepId": "planner",
+      "prompt": "prompts/planner.md",
+      "templateHash": "sha256...",
+      "templateBytes": 1024
+    }
+  ],
+  "path": "runs/<runId>/prompt-cache.json"
+}
+```
+
+This is a cache metadata artifact, not a provider-side prompt cache. It lets downstream tools compare whether static prompt context changed between runs.
 
 ## Hermes Supervisor Decision
 

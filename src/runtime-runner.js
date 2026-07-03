@@ -60,7 +60,8 @@ export function runtimeRunnerFromOptions(options = {}, projectConfig = {}, conte
   if (normalizedMode === 'local') {
     return {
       mode: 'local',
-      description: 'local child process'
+      description: 'local child process',
+      envAllowlist: []
     };
   }
 
@@ -85,6 +86,29 @@ export function runtimeRunnerFromOptions(options = {}, projectConfig = {}, conte
       context.runDir,
       ...asArray(configuredObject.mounts || dockerConfig.mounts)
     ])
+  };
+}
+
+export function runtimeRunnerContract(runtime) {
+  if (!runtime || runtime.mode === 'local') {
+    return {
+      mode: 'local',
+      processIsolation: 'none',
+      filesystem: 'host working tree',
+      envPolicy: 'inherits process.env unless command/tool envAllowlist is set',
+      shell: 'host shell'
+    };
+  }
+
+  return {
+    mode: 'docker',
+    processIsolation: 'container',
+    filesystem: 'explicit bind mounts',
+    envPolicy: 'only envAllowlist keys are passed with --env',
+    network: runtime.network || 'default',
+    mounts: runtime.mounts || [],
+    envAllowlist: runtime.envAllowlist || [],
+    shell: 'container sh -lc for shell commands'
   };
 }
 

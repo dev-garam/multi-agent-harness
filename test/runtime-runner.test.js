@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   dockerCommandArgs,
+  runtimeRunnerContract,
   runtimeRunnerFromOptions
 } from '../src/runtime-runner.js';
 
@@ -9,6 +10,7 @@ const local = runtimeRunnerFromOptions({}, {}, {
   runDir: '/tmp/run'
 });
 assert.equal(local.mode, 'local');
+assert.equal(runtimeRunnerContract(local).processIsolation, 'none');
 
 const docker = runtimeRunnerFromOptions({
   runner: 'docker',
@@ -26,6 +28,9 @@ assert.equal(docker.mode, 'docker');
 assert.equal(docker.image, 'node:22');
 assert.equal(docker.network, 'none');
 assert.deepEqual(docker.mounts, ['/tmp/repo', '/tmp/run']);
+const dockerContract = runtimeRunnerContract(docker);
+assert.equal(dockerContract.processIsolation, 'container');
+assert.equal(dockerContract.envPolicy, 'only envAllowlist keys are passed with --env');
 
 const args = dockerCommandArgs(docker, {
   command: 'node',

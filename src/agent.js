@@ -314,7 +314,7 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
     stdoutTruncated,
     stderrTruncated,
     stderrTail: tailText(stderr),
-    usage: parseProviderUsage(`${stdout}\n${stderr}`),
+    usage: parseProviderUsage(`${stdout}\n${stderr}`, { provider: agent.name }),
     lastOutputAt: lastOutputAt ? lastOutputAt.toISOString() : null,
     sandbox: step.sandbox || 'read-only',
     approval: step.approval || 'never',

@@ -278,16 +278,16 @@ Status: implemented
 
 ### Phase G. Provider And Runtime Refinement
 
-Status: planned
+Status: implemented
 
 목표: provider별 capability/usage/runtime 차이를 더 정확히 모델링한다.
 
 작업:
 
-1. Planned: Codex/Claude/custom CLI별 usage adapter 분리
-2. Planned: provider capability contract 문서화
-3. Planned: prompt/context cache artifact
-4. Planned: Docker/local runner 차이 문서화와 테스트 확장
+1. Done: Codex/Claude/custom CLI별 usage adapter metadata 분리
+2. Done: manifest `runtime.contract`에 local/Docker runner 계약 기록
+3. Done: `prompt-cache.json` static context/template hash artifact 추가
+4. Done: Docker/local runner 차이 테스트 확장
 
 ### Phase H. Operator UX And Reporting
 
@@ -308,11 +308,14 @@ Status: planned
 - `src/tools.js`: setup/teardown tool lifecycle을 담당한다.
 - `src/eval.js`: 하네스 자체 regression gate를 실행하고 eval report를 남긴다.
 - `src/usage.js`: provider stdout/stderr에서 token/cost usage를 best-effort로 파싱한다.
+- `src/prompt-cache.js`: prompt template과 static context hash artifact를 생성한다.
 - `.harness-eval.json`: fixture별 eval 기대값과 policy case를 선언한다.
+- `manifest.runtime.contract`: runner별 isolation, env, mount/network 계약을 저장한다.
+- `manifest.promptCache`: run의 prompt/static context cache metadata를 저장한다.
 - `manifest.middleware`: hook event stream, counters, runtime config summary를 저장한다.
 - `manifest.tools.lifecycle`: tool setup/teardown 결과를 저장한다.
 - `.harness.json` 신규 필드: `redaction`, `context`, `context.summarizer`, `retry`, `budget`, `tools`, `tools[].envAllowlist`.
-- 테스트: `test/middleware.test.js`, `test/config-validation.test.js`, `test/runtime-runner.test.js`, `test/eval-command.test.js`, `test/usage.test.js`, `test/policy-gate.test.js` 확장.
+- 테스트: `test/middleware.test.js`, `test/config-validation.test.js`, `test/runtime-runner.test.js`, `test/eval-command.test.js`, `test/usage.test.js`, `test/policy-gate.test.js`, `test/prompt-cache.test.js` 확장.
 
 ## 결론
 

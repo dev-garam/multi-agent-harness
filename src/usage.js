@@ -1,3 +1,5 @@
+const PROVIDER_ADAPTERS = new Set(['generic', 'codex', 'claude', 'antigravity', 'custom']);
+
 function parseNumber(value) {
   if (value === undefined || value === null || String(value).trim() === '') {
     return null;
@@ -6,7 +8,7 @@ function parseNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
-function fromUsageObject(value) {
+function fromUsageObject(value, { provider = 'unknown', adapter = 'generic' } = {}) {
   if (!value || typeof value !== 'object') {
     return null;
   }
@@ -22,6 +24,8 @@ function fromUsageObject(value) {
 
   return {
     status: 'parsed',
+    provider,
+    adapter,
     inputTokens,
     outputTokens,
     totalTokens: totalTokens ?? (
@@ -31,7 +35,7 @@ function fromUsageObject(value) {
   };
 }
 
-function parseJsonUsage(text) {
+function parseJsonUsage(text, context = {}) {
   for (const line of String(text || '').split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
@@ -39,7 +43,7 @@ function parseJsonUsage(text) {
     }
     try {
       const parsed = JSON.parse(trimmed);
-      const usage = fromUsageObject(parsed.usage || parsed);
+      const usage = fromUsageObject(parsed.usage || parsed, context);
       if (usage) {
         return usage;
       }
@@ -50,7 +54,7 @@ function parseJsonUsage(text) {
   return null;
 }
 
-function parseRegexUsage(text) {
+function parseRegexUsage(text, context = {}) {
   const value = String(text || '');
   const inputTokens = value.match(/(?:input|prompt)[_\s-]*tokens["':=\s]+([0-9,]+)/i)?.[1];
   const outputTokens = value.match(/(?:output|completion)[_\s-]*tokens["':=\s]+([0-9,]+)/i)?.[1];
@@ -61,12 +65,21 @@ function parseRegexUsage(text) {
     output_tokens: outputTokens,
     total_tokens: totalTokens,
     cost_usd: costUsd
-  });
+  }, context);
 }
 
-export function parseProviderUsage(text) {
-  return parseJsonUsage(text) || parseRegexUsage(text) || {
+function adapterForProvider(provider) {
+  const normalized = String(provider || 'generic').toLowerCase();
+  return PROVIDER_ADAPTERS.has(normalized) ? normalized : 'custom';
+}
+
+export function parseProviderUsage(text, { provider = 'unknown' } = {}) {
+  const adapter = adapterForProvider(provider);
+  const context = { provider, adapter };
+  return parseJsonUsage(text, context) || parseRegexUsage(text, context) || {
     status: 'unknown',
+    provider,
+    adapter,
     inputTokens: null,
     outputTokens: null,
     totalTokens: null,

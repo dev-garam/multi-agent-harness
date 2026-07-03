@@ -644,7 +644,11 @@ agent/validation/tool 실행 주변에는 가벼운 middleware runtime이 붙습
 }
 ```
 
-재시도는 모든 실패에 적용하지 않고 timeout, rate limit, 일시적 provider 오류처럼 retryable로 분류된 실패에만 적용됩니다. provider 로그에서 token/cost usage를 읽을 수 있으면 manifest에 기록하고, 읽을 수 없으면 `unknown`으로 남깁니다.
+재시도는 모든 실패에 적용하지 않고 timeout, rate limit, 일시적 provider 오류처럼 retryable로 분류된 실패에만 적용됩니다. provider 로그에서 token/cost usage를 읽을 수 있으면 provider adapter를 통해 manifest에 기록하고, 읽을 수 없으면 `unknown`으로 남깁니다.
+
+각 run은 `prompt-cache.json`도 생성합니다. 이 artifact는 prompt template hash, static project config hash, validation command hash를 담으며, 이후 prompt/context cache 최적화나 회귀 비교에 사용할 수 있습니다.
+
+manifest의 `runtime.contract`에는 local/Docker runner의 격리 수준, env 전달 정책, mount/network 정보가 기록됩니다.
 
 정확한 필드 형식은 [Project Config Schema](docs/config-schema.md)를 봅니다.
 

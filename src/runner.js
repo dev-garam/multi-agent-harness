@@ -16,9 +16,10 @@ import { gitSnapshot } from './git.js';
 import { resourceConfigFromProjectConfig } from './resources.js';
 import { appendManifestStep, saveManifest } from './manifest.js';
 import { formatConfigValidationIssues, validateProjectConfig } from './config-validation.js';
-import { assertRuntimeRunnerAvailable, runtimeRunnerFromOptions } from './runtime-runner.js';
+import { assertRuntimeRunnerAvailable, runtimeRunnerContract, runtimeRunnerFromOptions } from './runtime-runner.js';
 import { appendRuntimeSummary, createHarnessRuntime } from './middleware.js';
 import { runToolLifecycle, toolConfigsFromProjectConfig } from './tools.js';
+import { writePromptCacheArtifact } from './prompt-cache.js';
 
 const HERMES_STEP_ID = 'hermes';
 const DEFAULT_MAX_SUPERVISOR_TURNS = 3;
@@ -388,6 +389,16 @@ export async function runPipeline(options, request) {
     assertRuntimeRunnerAvailable(runtime);
   }
 
+  const promptCache = await writePromptCacheArtifact({
+    runDir,
+    pipeline: {
+      pipelineName: selected.pipelineName,
+      steps: selected.pipeline.steps
+    },
+    projectConfig,
+    validationCommands
+  });
+
   const manifest = {
     schemaVersion: 1,
     runId,
@@ -412,7 +423,11 @@ export async function runPipeline(options, request) {
     nodeVersion: process.version,
     projectConfig,
     workspace,
-    runtime,
+    runtime: {
+      ...runtime,
+      contract: runtimeRunnerContract(runtime)
+    },
+    promptCache,
     policy: {
       mode: 'direct',
       approved: Boolean(options.policyApproved),
