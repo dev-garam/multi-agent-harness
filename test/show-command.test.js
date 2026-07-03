@@ -21,6 +21,7 @@ rmSync(runDir, { recursive: true, force: true });
 mkdirSync(runDir, { recursive: true });
 writeFileSync(path.join(runDir, 'reporter.md'), '# report\n');
 writeFileSync(path.join(runDir, 'changes.patch'), 'diff --git a/demo.txt b/demo.txt\n');
+writeFileSync(path.join(runDir, 'prompt-cache.json'), '{}\n');
 writeFileSync(path.join(runDir, 'manifest.json'), JSON.stringify({
   schemaVersion: 1,
   runId,
@@ -46,7 +47,45 @@ writeFileSync(path.join(runDir, 'manifest.json'), JSON.stringify({
       allowed: true,
       requiresApproval: false,
       reason: 'ok'
+    },
+    protectedBranch: {
+      writeBlocked: false
     }
+  },
+  runtime: {
+    mode: 'local',
+    contract: {
+      processIsolation: 'none',
+      envPolicy: 'inherits process.env unless command/tool envAllowlist is set'
+    }
+  },
+  middleware: {
+    state: {
+      counters: {
+        retries: 1,
+        fallbacks: 0,
+        redactions: 2,
+        contextTruncations: 1
+      }
+    },
+    events: [
+      {
+        type: 'retry:agent',
+        detail: {
+          reason: 'exit 124'
+        }
+      }
+    ]
+  },
+  promptCache: {
+    path: path.join(runDir, 'prompt-cache.json'),
+    strategy: 'static-context-hash',
+    cacheKey: 'demo',
+    templates: [
+      {
+        stepId: 'coder'
+      }
+    ]
   },
   steps: [
     {
@@ -55,6 +94,13 @@ writeFileSync(path.join(runDir, 'manifest.json'), JSON.stringify({
       status: 'succeeded',
       agent: 'mock',
       exitCode: 0,
+      usage: {
+        status: 'parsed',
+        provider: 'mock',
+        adapter: 'custom',
+        totalTokens: 12,
+        costUsd: 0.01
+      },
       finalPath: path.join(runDir, 'coder.md')
     },
     {
@@ -98,6 +144,12 @@ try {
   assert.match(text, /Harness run/);
   assert.match(text, new RegExp(`Run: ${runId}`));
   assert.match(text, /Mode: patch \(isolated\)/);
+  assert.match(text, /Runtime/);
+  assert.match(text, /Isolation: none/);
+  assert.match(text, /Retries: 1/);
+  assert.match(text, /Redactions: 2/);
+  assert.match(text, /Total tokens: 12/);
+  assert.match(text, /Strategy: static-context-hash/);
   assert.match(text, /validation:demo \[validation\] failed \(id=demo exit=1\)/);
   assert.match(text, /Patch: .*changes\.patch/);
 
@@ -109,6 +161,10 @@ try {
   assert.equal(json.status, 'succeeded');
   assert.equal(json.workspace.mode, 'patch');
   assert.equal(json.validationFailures.length, 1);
+  assert.equal(json.middleware.retry.retries, 1);
+  assert.equal(json.middleware.redaction.redactions, 2);
+  assert.equal(json.usage.totalTokens, 12);
+  assert.equal(json.runtime.contract.processIsolation, 'none');
 } finally {
   rmSync(runDir, { recursive: true, force: true });
 }

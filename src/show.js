@@ -73,6 +73,50 @@ function validationFailures(steps) {
     }));
 }
 
+function agentUsageSummary(steps) {
+  const usageEntries = steps
+    .filter((step) => step.type === 'agent' && step.usage)
+    .map((step) => ({
+      stepId: step.stepId,
+      provider: step.usage.provider || step.agent || null,
+      adapter: step.usage.adapter || null,
+      status: step.usage.status || 'unknown',
+      inputTokens: step.usage.inputTokens ?? null,
+      outputTokens: step.usage.outputTokens ?? null,
+      totalTokens: step.usage.totalTokens ?? null,
+      costUsd: step.usage.costUsd ?? null
+    }));
+  return {
+    parsed: usageEntries.filter((entry) => entry.status === 'parsed').length,
+    unknown: usageEntries.filter((entry) => entry.status !== 'parsed').length,
+    totalTokens: usageEntries.reduce((total, entry) => total + (entry.totalTokens || 0), 0),
+    costUsd: usageEntries.reduce((total, entry) => total + (entry.costUsd || 0), 0),
+    entries: usageEntries
+  };
+}
+
+function retrySummary(manifest) {
+  const events = manifest.middleware?.events || [];
+  return {
+    retries: manifest.middleware?.state?.counters?.retries ?? 0,
+    fallbacks: manifest.middleware?.state?.counters?.fallbacks ?? 0,
+    events: events
+      .filter((event) => event.type?.startsWith('retry:') || event.type?.startsWith('fallback:'))
+      .map((event) => ({
+        type: event.type,
+        detail: event.detail,
+        createdAt: event.createdAt
+      }))
+  };
+}
+
+function redactionSummary(manifest) {
+  return {
+    redactions: manifest.middleware?.state?.counters?.redactions ?? 0,
+    contextTruncations: manifest.middleware?.state?.counters?.contextTruncations ?? 0
+  };
+}
+
 function latestReporterPath(manifest) {
   const reporterStep = [...(manifest.steps || [])].reverse()
     .find((step) => step.type === 'agent' && step.stepId === 'reporter' && step.finalPath);
@@ -108,8 +152,26 @@ export function summarizeRunManifest(manifest) {
       allowed: manifest.policy?.decision?.allowed ?? null,
       requiresApproval: manifest.policy?.decision?.requiresApproval ?? null,
       reason: manifest.policy?.decision?.reason || null,
-      approved: manifest.policy?.decision?.approved === true || manifest.policy?.approved === true
+      approved: manifest.policy?.decision?.approved === true || manifest.policy?.approved === true,
+      protectedBranch: manifest.policy?.protectedBranch || null
     },
+    runtime: {
+      mode: manifest.runtime?.mode || null,
+      contract: manifest.runtime?.contract || null
+    },
+    middleware: {
+      retry: retrySummary(manifest),
+      redaction: redactionSummary(manifest)
+    },
+    usage: agentUsageSummary(manifest.steps || []),
+    promptCache: manifest.promptCache
+      ? {
+          path: existingPath(manifest.promptCache.path),
+          strategy: manifest.promptCache.strategy || null,
+          cacheKey: manifest.promptCache.cacheKey || null,
+          templates: manifest.promptCache.templates?.length || 0
+        }
+      : null,
     steps,
     validationFailures: validationFailures(manifest.steps || []),
     supervisorDecisions: (manifest.supervisorDecisions || []).map((decision) => ({
@@ -157,6 +219,29 @@ export function formatRunSummary(summary) {
     `Requires approval: ${formatNullable(summary.policy.requiresApproval)}`,
     `Approved: ${summary.policy.approved}`,
     `Reason: ${formatNullable(summary.policy.reason)}`,
+    `Protected branch blocked: ${formatNullable(summary.policy.protectedBranch?.writeBlocked)}`,
+    '',
+    'Runtime',
+    `Mode: ${formatNullable(summary.runtime.mode)}`,
+    `Isolation: ${formatNullable(summary.runtime.contract?.processIsolation)}`,
+    `Env policy: ${formatNullable(summary.runtime.contract?.envPolicy)}`,
+    '',
+    'Middleware',
+    `Retries: ${summary.middleware.retry.retries}`,
+    `Fallbacks: ${summary.middleware.retry.fallbacks}`,
+    `Redactions: ${summary.middleware.redaction.redactions}`,
+    `Context truncations: ${summary.middleware.redaction.contextTruncations}`,
+    '',
+    'Usage',
+    `Parsed entries: ${summary.usage.parsed}`,
+    `Unknown entries: ${summary.usage.unknown}`,
+    `Total tokens: ${summary.usage.totalTokens}`,
+    `Cost USD: ${summary.usage.costUsd}`,
+    '',
+    'Prompt Cache',
+    `Path: ${formatNullable(summary.promptCache?.path)}`,
+    `Strategy: ${formatNullable(summary.promptCache?.strategy)}`,
+    `Templates: ${formatNullable(summary.promptCache?.templates)}`,
     '',
     'Steps'
   ];

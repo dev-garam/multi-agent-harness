@@ -9,6 +9,7 @@ import { formatConfigValidationIssues, validateProjectConfig } from './config-va
 import { loadConfig } from './config.js';
 import { listProviderCapabilities, resolveAgentConfig } from './agent.js';
 import { assertRuntimeRunnerAvailable, runtimeRunnerFromOptions } from './runtime-runner.js';
+import { runHarnessEval } from './eval.js';
 
 const harnessBin = fileURLToPath(new URL('../bin/harness', import.meta.url));
 
@@ -216,6 +217,19 @@ export async function runDoctor({ repo = process.cwd(), agent = null } = {}) {
 
   const gitignore = await inspectHarnessGitignore(harnessRoot);
   printCheck(gitignore.status, 'harness .gitignore runtime exclusions', gitignore.message);
+
+  try {
+    const evalResult = JSON.parse(await runHarnessEval({ repo: resolvedRepo, json: true }));
+    const evalStatus = evalResult.status === 'passed'
+      ? evalResult.score.warned > 0 ? 'warn' : 'ok'
+      : 'fail';
+    printCheck(evalStatus, 'harness eval readiness',
+      `${evalResult.status}; score=${evalResult.score.passed}/${evalResult.score.total}; warnings=${evalResult.score.warned}; report=${evalResult.reportPath}`);
+    hasFailure = hasFailure || evalResult.status !== 'passed';
+  } catch (error) {
+    printCheck('fail', 'harness eval readiness', error instanceof Error ? error.message : String(error));
+    hasFailure = true;
+  }
 
   if (hasFailure) {
     throw new Error('Doctor found required connection problems.');

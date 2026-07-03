@@ -299,7 +299,7 @@ harness show <runId>
 harness show --json <runId>
 ```
 
-요약에는 run 상태, repo, pipeline, workspace mode, patch path, step 상태, validation 실패, Hermes decision, reporter summary, 주요 artifact 경로가 포함됩니다.
+요약에는 run 상태, repo, pipeline, workspace mode, patch path, policy/protected branch decision, runtime contract, retry/fallback, redaction/context truncation, provider usage, prompt cache, step 상태, validation 실패, Hermes decision, reporter summary, 주요 artifact 경로가 포함됩니다.
 
 ## 프로젝트 설정
 
@@ -526,11 +526,13 @@ Node 계열 프로젝트에서는 lockfile로 package manager를 고릅니다.
 }
 ```
 
-설정 후에는 아래 명령으로 연결 상태와 config validation을 확인합니다.
+설정 후에는 아래 명령으로 연결 상태, config validation, runtime, validation command, trust boundary, eval readiness를 확인합니다.
 
 ```sh
 harness doctor --repo /path/to/project --agent codex
 ```
+
+`harness eval --repo <path>`는 `.harness.json` 준비도와 선택적 `.harness-eval.json` fixture 기대값을 점검합니다. 결과에는 score와 recommendations가 포함되며, JSON report는 `.harness/eval/`에 저장됩니다.
 
 ### Validation 설정
 

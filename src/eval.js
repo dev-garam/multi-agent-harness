@@ -29,6 +29,38 @@ function scoreChecks(checks) {
   };
 }
 
+function recommendationsForChecks(checks) {
+  const recommendations = [];
+  const byId = new Map(checks.map((entry) => [entry.id, entry]));
+  if (byId.get('project-config-exists')?.status === 'fail') {
+    recommendations.push('Run `harness init-project --repo <path>` to create .harness.json.');
+  }
+  if (byId.get('project-config-schema')?.status === 'fail') {
+    recommendations.push('Fix .harness.json schema errors, then rerun `harness doctor --repo <path>`.');
+  }
+  if (byId.get('validation-coverage')?.status === 'warn') {
+    recommendations.push('Add testCommand, buildCommand, or validationCommands so the harness can verify changes.');
+  }
+  if (byId.get('protected-branches')?.status === 'warn') {
+    recommendations.push('Add protectedBranches to prevent accidental autonomous work on main/production.');
+  }
+  if (byId.get('redaction-policy')?.status === 'warn') {
+    recommendations.push('Enable redaction to reduce secret exposure in prompts, logs, and manifests.');
+  }
+  if (byId.get('budget-policy')?.status === 'warn') {
+    recommendations.push('Add budget limits for agent steps, provider calls, validation commands, and runtime.');
+  }
+  for (const entry of checks) {
+    if (entry.id.startsWith('expected-') && entry.status === 'fail') {
+      recommendations.push(`Review fixture expectation: ${entry.id}.`);
+    }
+    if (entry.id.startsWith('policy-case:') && entry.status === 'fail') {
+      recommendations.push(`Review policy case expectation: ${entry.id}.`);
+    }
+  }
+  return [...new Set(recommendations)];
+}
+
 async function loadEvalSpec(repo) {
   const specPath = path.join(repo, '.harness-eval.json');
   if (!existsSync(specPath)) {
@@ -214,7 +246,8 @@ export async function runHarnessEval({ repo = process.cwd(), json = false } = {}
     reportPath,
     status: checks.some((entry) => entry.status === 'fail') ? 'failed' : 'passed',
     score: scoreChecks(checks),
-    checks
+    checks,
+    recommendations: recommendationsForChecks(checks)
   };
 
   await ensureDir(evalDir);
@@ -231,6 +264,11 @@ export async function runHarnessEval({ repo = process.cwd(), json = false } = {}
     `Score: ${result.score.passed}/${result.score.total}`,
     `Report: ${result.reportPath}`,
     '',
-    ...checks.map((entry) => `- ${entry.status}: ${entry.id}: ${entry.message}`)
+    ...checks.map((entry) => `- ${entry.status}: ${entry.id}: ${entry.message}`),
+    '',
+    'Recommendations',
+    ...(result.recommendations.length > 0
+      ? result.recommendations.map((entry) => `- ${entry}`)
+      : ['- none'])
   ].join('\n');
 }

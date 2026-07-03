@@ -291,16 +291,16 @@ Status: implemented
 
 ### Phase H. Operator UX And Reporting
 
-Status: planned
+Status: implemented
 
 목표: 실행 결과를 더 쉽게 판단하고, 설정 제안 UX를 정리한다.
 
 작업:
 
-1. Planned: `harness show`에 retry/usage/redaction/policy 요약 추가
-2. Planned: `doctor`에 eval/config readiness 요약 추가
-3. Planned: `configSuggestions` ask/apply UX 정리
-4. Planned: 공개 repo용 문서 최종 정리
+1. Done: `harness show`에 retry/usage/redaction/policy/runtime/prompt cache 요약 추가
+2. Done: `doctor`에 eval/config readiness 요약 추가
+3. Done: `harness eval` recommendations 추가
+4. Done: 공개 repo용 README/docs 최종 정리
 
 ## 이번 구현으로 생긴 주요 산출물
 
@@ -315,10 +315,10 @@ Status: planned
 - `manifest.middleware`: hook event stream, counters, runtime config summary를 저장한다.
 - `manifest.tools.lifecycle`: tool setup/teardown 결과를 저장한다.
 - `.harness.json` 신규 필드: `redaction`, `context`, `context.summarizer`, `retry`, `budget`, `tools`, `tools[].envAllowlist`.
-- 테스트: `test/middleware.test.js`, `test/config-validation.test.js`, `test/runtime-runner.test.js`, `test/eval-command.test.js`, `test/usage.test.js`, `test/policy-gate.test.js`, `test/prompt-cache.test.js` 확장.
+- 테스트: `test/middleware.test.js`, `test/config-validation.test.js`, `test/runtime-runner.test.js`, `test/eval-command.test.js`, `test/usage.test.js`, `test/policy-gate.test.js`, `test/prompt-cache.test.js`, `test/show-command.test.js` 확장.
 
 ## 결론
 
 현재 하네스는 "coding CLI agent를 관찰 가능하고 검증 가능한 파이프라인으로 감싸는 구조"에서 한 단계 더 나아가, pipeline 주변에 조합 가능한 middleware runtime을 갖는다.
 
-남은 확장 후보는 Phase G/H로 분리한다. 실제 provider를 호출하는 model summarizer는 비용과 비결정성 때문에 기본 경로가 아니라 선택 기능으로 다루는 편이 맞다.
+Phase A부터 H까지 완료되었고, 공개 repo에서 구조를 보여주는 목적에는 충분한 상태다. 이후 확장은 제품화 범위로 분리하는 편이 맞다. 실제 provider를 호출하는 model summarizer, 원격 runner, 웹 대시보드, 팀 단위 queue는 현재 기본 실행 계약 위에 별도 로드맵으로 다룬다.

@@ -40,6 +40,7 @@ assert.equal(json.status, 0, json.stderr);
 const parsed = JSON.parse(json.stdout);
 assert.equal(parsed.status, 'passed');
 assert.ok(parsed.checks.some((entry) => entry.id === 'budget-policy' && entry.status === 'pass'));
+assert.deepEqual(parsed.recommendations, []);
 assert.ok(existsSync(parsed.reportPath));
 
 const fixtureRepo = path.join(harnessRoot, 'test', 'fixtures', 'eval-ready');
@@ -53,5 +54,6 @@ assert.equal(fixtureParsed.status, 'passed');
 assert.equal(fixtureParsed.score.failed, 0);
 assert.equal(fixtureParsed.score.warned, 0);
 assert.equal(fixtureParsed.score.score, 1);
+assert.deepEqual(fixtureParsed.recommendations, []);
 
 console.log('eval command tests passed');
