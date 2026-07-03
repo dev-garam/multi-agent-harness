@@ -21,6 +21,7 @@ The harness validates this file before running agents. Invalid config stops `har
 - `resources`: optional resource limits.
 - `supervisor`: optional Hermes supervisor config.
 - `cleanup`: optional run cleanup config.
+- `configSuggestions`: optional config suggestion preference.
 - `policy`: optional policy config.
 - `protectedBranches`: optional array of branch names.
 
@@ -142,6 +143,22 @@ All resource values must be positive numbers.
 
 - `enabled` and `dryRun` must be boolean.
 - `days` and `keep` must be positive numbers.
+
+## Config Suggestions
+
+```json
+{
+  "configSuggestions": {
+    "enabled": true,
+    "mode": "ask"
+  }
+}
+```
+
+- `enabled` must be boolean.
+- `mode`, when present, must be `ask`.
+
+When enabled, the harness may ask before adding helpful project config during future work. It should not silently edit `.harness.json`.
 
 ## Policy
 

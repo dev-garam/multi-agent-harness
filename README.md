@@ -39,6 +39,26 @@
 node ./bin/harness init-project --repo /path/to/project
 ```
 
+`init-project`는 빈 템플릿만 쓰지 않고, 대상 repo에서 가능한 값을 자동으로 채웁니다.
+
+- `package.json`의 `scripts.build` -> `buildCommand`
+- `package.json`의 `scripts.test` -> `testCommand`
+- `scripts.lint`, `scripts.typecheck`, `scripts.check` -> `validationCommands`
+- lockfile -> `npm`, `pnpm`, `yarn`, `bun` 명령 선택
+- git 브랜치 -> `protectedBranches`
+
+감지하지 못한 값은 비워두고, 실행 결과에 `(not detected)`로 표시합니다. 그 경우 프로젝트의 실제 검증 명령을 확인해서 `.harness.json`에 직접 추가합니다.
+
+이미 `.harness.json`이 있는 프로젝트에서 대화형으로 다시 설정하려면 `--interactive`를 사용합니다.
+
+```sh
+harness init-project --repo /path/to/project --interactive
+harness init-project --repo /path/to/project --refresh
+harness init-project --repo /path/to/project --refresh --apply
+```
+
+`--interactive`는 기존 파일 리셋 여부, 기본 추천 필드 추가 여부, 앞으로 작업 중 설정 제안을 물어봐도 되는지 순서대로 확인합니다.
+
 하네스를 실행합니다.
 
 ```sh
@@ -109,7 +129,7 @@ harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
 - `doctor`: 에이전트 CLI 연결 상태를 확인합니다.
 - `show`: `runs/<runId>/manifest.json`을 사람이 읽기 좋은 요약 또는 JSON summary로 보여줍니다.
 - `hermes`: Hermes top-level 운영 명령을 실행합니다.
-- `init-project`: 대상 프로젝트에 `.harness.json` 기본 파일을 만듭니다.
+- `init-project`: 대상 프로젝트를 읽어 `.harness.json` 기본 파일을 만들고 package scripts/git branch를 가능한 범위에서 자동 반영합니다.
 - `install-ide-task`: 대상 프로젝트의 `.vscode/tasks.json`에 `Harness: Run` 작업을 추가합니다.
 - `watch`: `runs/`의 manifest 변화를 관찰하며 run, step, validation, Hermes decision, 완료 상태를 터미널에 표시합니다.
 - `clean`: 오래된 `runs/` 디렉터리를 `runs/.trash/`로 이동하거나, `--worktrees`로 isolated worktree를 정리합니다.
@@ -282,6 +302,8 @@ harness show --json <runId>
 
 대상 프로젝트 루트에 `.harness.json`을 둘 수 있습니다.
 
+어떤 필드를 왜 채워야 할지 모르겠다면 먼저 [Project Config Guide](docs/project-config-guide.md)를 봅니다. 필드 형식만 빠르게 확인하려면 [Project Config Schema](docs/config-schema.md)를 봅니다.
+
 ```json
 {
   "pipeline": "code_fix",
@@ -315,6 +337,138 @@ CLI 옵션이 `.harness.json`보다 우선합니다.
 
 ```sh
 node ./bin/harness run --repo /path/to/project --agent claude "작업 요청"
+```
+
+### Init Project 자동 감지
+
+`harness init-project --repo <path>`는 사용자가 처음부터 모든 명령을 알 필요가 없도록 프로젝트를 읽어서 기본 설정을 채웁니다.
+
+이미 `.harness.json`이 있으면 기본적으로 덮어쓰지 않습니다. 대신 아래처럼 refresh 모드로 부족한 설정을 제안받을 수 있습니다.
+
+```sh
+harness init-project --repo . --refresh
+```
+
+예시 출력:
+
+```text
+Suggested .harness.json updates:
++ buildCommand: npm run build
++ testCommand: npm run test
++ validationCommands.lint: npm run lint
+~ protectedBranches: dev, production -> main, production
+Run with --refresh --apply to update .harness.json.
+```
+
+실제 파일을 수정하려면 명시적으로 `--apply`를 붙입니다.
+
+```sh
+harness init-project --repo . --refresh --apply
+```
+
+터미널에서 직접 확인 질문을 받고 싶으면 `--interactive`를 사용합니다.
+
+```sh
+harness init-project --repo . --interactive
+```
+
+첫 번째 질문은 기존 설정을 전체 리셋할지 묻습니다.
+
+```text
+Existing .harness.json found. Reset it from scratch? [y/N]
+```
+
+- `y`: 기존 설정을 코어 기본값으로 전체 재설정합니다. 기존 커스텀 필드는 사라질 수 있습니다.
+- `n` 또는 Enter: 기존 설정을 유지합니다.
+
+두 번째 질문은 기본 추천 필드를 추가할지 묻습니다. 첫 번째 질문에서 리셋을 선택했다면 새로 재설정되는 파일에 적용되고, 리셋하지 않았다면 기존 파일에 병합됩니다.
+
+```text
+Add recommended default fields to .harness.json? [y/N]
+```
+
+- `y`: 누락된 `buildCommand`, `testCommand`, `validationCommands`, `supervisor`, `cleanup`, `runner`, `protectedBranches` 추천값을 병합합니다.
+- `n` 또는 Enter: 리셋한 경우 코어 기본값만 남기고, 리셋하지 않은 경우 기존 필드를 그대로 둡니다.
+
+세 번째 질문은 앞으로 하네스가 작업 중 필요하다고 판단한 설정을 사용자에게 제안해도 되는지 저장합니다.
+
+```text
+Allow the harness to ask before adding helpful config during future work? [y/N]
+```
+
+- `y`: `.harness.json`에 `configSuggestions.enabled: true`, `mode: "ask"`를 저장합니다.
+- `n` 또는 Enter: `configSuggestions.enabled: false`를 저장합니다.
+
+Node 계열 프로젝트에서는 lockfile로 package manager를 고릅니다.
+
+- `pnpm-lock.yaml` -> `pnpm`
+- `yarn.lock` -> `yarn`
+- `bun.lock`, `bun.lockb` -> `bun`
+- 그 외 -> `npm`
+
+그리고 `package.json` scripts를 아래처럼 매핑합니다.
+
+| package script | `.harness.json` 필드 |
+| --- | --- |
+| `build` | `buildCommand` |
+| `test` | `testCommand` |
+| `lint` | `validationCommands[]` |
+| `typecheck` | `validationCommands[]` |
+| `check` | `validationCommands[]` |
+
+예를 들어 `package.json`에 아래 scripts가 있으면:
+
+```json
+{
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  }
+}
+```
+
+`pnpm-lock.yaml`이 있는 repo에서는 이렇게 생성됩니다.
+
+```json
+{
+  "buildCommand": "pnpm run build",
+  "testCommand": "pnpm run test",
+  "validationCommands": [
+    {
+      "id": "lint",
+      "command": "pnpm run lint"
+    },
+    {
+      "id": "typecheck",
+      "command": "pnpm run typecheck"
+    }
+  ]
+}
+```
+
+브랜치는 현재 작업 브랜치보다 `main`, `master` 같은 보호 후보 브랜치 존재 여부를 먼저 봅니다. 예를 들어 현재 브랜치가 `dev`여도 repo에 `main` 브랜치가 있으면 기본값은 `main`, `production`이 됩니다. 보호 후보를 찾지 못한 경우에만 remote default branch나 현재 브랜치를 fallback으로 사용합니다.
+
+감지되지 않는 프로젝트도 있습니다. Go, Rust, Maven, Gradle, Makefile 기반 프로젝트는 현재 자동 감지 대상이 아니므로 생성 후 아래처럼 직접 채웁니다.
+
+```json
+{
+  "buildCommand": "cargo build",
+  "testCommand": "cargo test",
+  "validationCommands": [
+    {
+      "id": "fmt",
+      "command": "cargo fmt --check"
+    }
+  ]
+}
+```
+
+설정 후에는 아래 명령으로 연결 상태와 config validation을 확인합니다.
+
+```sh
+harness doctor --repo /path/to/project --agent codex
 ```
 
 ### Validation 설정

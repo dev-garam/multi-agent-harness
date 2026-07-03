@@ -46,6 +46,10 @@ const valid = validateProjectConfig({
     days: 7,
     keep: 20
   },
+  configSuggestions: {
+    enabled: true,
+    mode: 'ask'
+  },
   runner: {
     mode: 'docker',
     image: 'node:22',
@@ -89,6 +93,10 @@ const invalid = validateProjectConfig({
     enabled: 'yes',
     maxSupervisorTurns: 1.5
   },
+  configSuggestions: {
+    enabled: 'yes',
+    mode: 'auto'
+  },
   policy: {
     allowAutonomousRun: 'true',
     protectedBranches: ['main', 1]
@@ -103,6 +111,8 @@ assert.ok(invalid.errors.some((entry) => entry.path === 'runner.image'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'validationCommands[0].command'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'resources.agentTimeoutMs'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'supervisor.enabled'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'configSuggestions.enabled'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'configSuggestions.mode'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'policy.protectedBranches[1]'));
 
 const repo = mkdtempSync(path.join(tmpdir(), 'harness-invalid-config-'));

@@ -2,8 +2,8 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { cleanRuns, cleanWorktrees } from './clean.js';
 import { runDoctor } from './doctor.js';
-import { writeText } from './fs-utils.js';
 import { installIdeTask } from './ide.js';
+import { initProjectConfig } from './init-project.js';
 import { runWatch } from './watch.js';
 import { runHermesCommand } from './hermes.js';
 import { runPipeline } from './runner.js';
@@ -14,7 +14,7 @@ function usage() {
     'Usage:',
     '  harness run --repo <path> [options] "<request>"',
     '  harness install-ide-task --repo <path>',
-    '  harness init-project --repo <path>',
+    '  harness init-project --repo <path> [--refresh] [--interactive] [--apply]',
     '  harness doctor [--repo <path>] [--agent <provider>]',
     '  harness show [--latest|<runId>] [--json]',
     '  harness hermes <subcommand> [options] [request]',
@@ -53,6 +53,14 @@ function usage() {
     '  --once                            Watch once and exit',
     '  --include-existing                Include already completed runs in watch output',
     '',
+    'Init project:',
+    '  init-project detects package.json scripts, package manager lockfiles, and git default branches.',
+    '  --interactive asks about reset, recommended defaults, and future config suggestions.',
+    '  --refresh suggests updates for an existing .harness.json without changing it.',
+    '  --refresh --interactive asks before applying suggested updates.',
+    '  --refresh --apply writes the suggested .harness.json updates.',
+    '  Review the generated .harness.json before running autonomous workflows.',
+    '',
     'Examples:',
     '  harness run --repo "$PWD" --agent codex "Fix failing tests"',
     '  harness run --repo "$PWD" --workspace-mode patch --runner docker --runner-image node:22 "Fix failing tests"',
@@ -84,6 +92,10 @@ function parseArgs(args) {
       options.runnerImage = args[++index];
     } else if (arg === '--dry-run') {
       options.dryRun = true;
+    } else if (arg === '--refresh') {
+      options.refresh = true;
+    } else if (arg === '--interactive') {
+      options.interactive = true;
     } else if (arg === '--worktrees') {
       options.worktrees = true;
     } else if (arg === '--apply') {
@@ -133,36 +145,6 @@ function requireRepo(repo) {
   return resolved;
 }
 
-async function initProject(repo) {
-  const configPath = path.join(repo, '.harness.json');
-  if (!existsSync(configPath)) {
-    await writeText(configPath, JSON.stringify({
-      pipeline: 'code_fix',
-      agent: {
-        provider: 'codex'
-      },
-      testCommand: '',
-      buildCommand: '',
-      validationCommands: [],
-      supervisor: {
-        enabled: true,
-        maxSupervisorTurns: 3,
-        maxStepRetries: 1
-      },
-      cleanup: {
-        enabled: false,
-        days: 7,
-        keep: 20
-      },
-      runner: {
-        mode: 'local'
-      },
-      protectedBranches: ['main', 'production']
-    }, null, 2) + '\n');
-  }
-  return configPath;
-}
-
 export async function main(args) {
   const parsed = parseArgs([...args]);
 
@@ -185,8 +167,12 @@ export async function main(args) {
 
   if (parsed.command === 'init-project') {
     const repo = requireRepo(parsed.options.repo || process.cwd());
-    const configPath = await initProject(repo);
-    console.log(`Project harness config: ${configPath}`);
+    const result = await initProjectConfig(repo, {
+      refresh: Boolean(parsed.options.refresh),
+      interactive: Boolean(parsed.options.interactive),
+      apply: Boolean(parsed.options.apply)
+    });
+    console.log(result.output.join('\n'));
     return;
   }
 

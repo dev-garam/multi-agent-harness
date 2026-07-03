@@ -14,6 +14,10 @@
 
    하네스를 실행/격리/검증/정책/복구 관점에서 강화하기 위한 개발 지도입니다.
 
+3. [Project Config Guide](./project-config-guide.md)
+
+   대상 프로젝트의 `.harness.json`을 어떤 기준으로 채우고 수정할지 설명하는 사용자 가이드입니다.
+
 ## Document Map
 
 현재 문서:
@@ -22,6 +26,7 @@
 - [Harness Engineering Roadmap](./harness-engineering-roadmap.md)
 - [Security Model](./security-model.md)
 - [Artifact Schema](./artifact-schema.md)
+- [Project Config Guide](./project-config-guide.md)
 - [Project Config Schema](./config-schema.md)
 - [Showcase Demo](../demos/showcase/README.md)
 - [Hermes Harness Architecture Diagram](./diagrams/hermes-harness-architecture.puml)

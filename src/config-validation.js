@@ -301,6 +301,19 @@ export function validateProjectConfig(projectConfig = {}, { harnessConfig = null
     }
   }
 
+  if (projectConfig.configSuggestions !== undefined) {
+    if (!isPlainObject(projectConfig.configSuggestions)) {
+      issues.push(issue('error', 'configSuggestions', 'must be an object'));
+    } else {
+      if (projectConfig.configSuggestions.enabled !== undefined) {
+        validateBoolean(projectConfig.configSuggestions.enabled, 'configSuggestions.enabled', issues);
+      }
+      if (projectConfig.configSuggestions.mode !== undefined && projectConfig.configSuggestions.mode !== 'ask') {
+        issues.push(issue('error', 'configSuggestions.mode', 'must be ask'));
+      }
+    }
+  }
+
   const policy = projectConfig.policy;
   if (policy !== undefined) {
     if (!isPlainObject(policy)) {
