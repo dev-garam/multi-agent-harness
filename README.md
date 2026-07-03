@@ -109,7 +109,7 @@ harness run --repo <path> [options] "<request>"
 harness doctor [--repo <path>] [--agent <provider>]
 harness show [--latest|<runId>] [--json]
 harness hermes <subcommand> [options] [request]
-harness init-project --repo <path>
+harness init-project --repo <path> [--refresh] [--interactive] [--apply]
 harness install-ide-task --repo <path>
 harness watch [--interval <ms>] [--once] [--include-existing]
 harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
