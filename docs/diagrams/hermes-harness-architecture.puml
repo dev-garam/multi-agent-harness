@@ -16,30 +16,54 @@ skinparam ranksep 70
 actor "사용자" as user
 rectangle "IDE / 터미널 / 스케줄" as input
 
-rectangle "헤르메스 운영자\n(harness hermes)\n\n- 운영 명령\n  status / plan / enqueue / tick\n- 작업 큐\n  pending / running / done / failed\n- 계획 + 정책\n  메모리 기반 계획\n  위험 작업 차단\n  보호 브랜치 차단\n- 피드백 저장\n- 패턴 승격\n  제안 / patch 생성\n- 리포트 + 알림\n  markdown / webhook / slack / discord" as hermes
+rectangle "CLI 인터페이스\n(harness)\n\n- run / doctor / show / watch / clean\n- init-project / install-ide-task\n- hermes 운영 명령" as cli
 
-rectangle "하네스 실행기\n(harness run)\n\n- 파이프라인 선택\n  quick_fix / code_fix / safe_fix / review_only\n- 에이전트 어댑터\n  Codex / Claude / 기타 CLI\n- 작업자 단계\n  planner / coder / qa / verifier\n- 검증 단계\n  build / test / validation\n- 헤르메스 감독자\n  파이프라인 내부 판단\n- 최종 보고자\n  reporter.md" as runtime
+rectangle "헤르메스 운영자\n(harness hermes)\n\n- 운영 명령\n  status / plan / enqueue / tick\n  approve / reject / feedback\n  promote / report\n- 작업 큐\n  pending / running / done / failed\n- 계획 + 정책\n  메모리 기반 계획\n  위험 작업 차단\n  보호 브랜치 차단\n- 피드백 저장\n- 패턴 승격\n  제안 / patch 생성\n- 리포트 + 알림\n  markdown / webhook / slack / discord" as hermes
 
-rectangle "프로젝트 저장소\n\n- .harness.json\n  설정 / 보호 브랜치 / 알림 채널\n- 현재 git 브랜치\n- 소스 코드" as project
+rectangle "하네스 실행기\n(harness run)\n\n- config preflight\n  .harness.json schema 검증\n- 파이프라인 선택\n  quick_fix / code_fix / safe_fix / review_only\n- workspace 준비\n  direct / worktree / patch\n- provider 계약\n  capability / outputMode / timeout\n- 작업자 단계\n  planner / coder / qa / verifier\n- 헤르메스 감독자\n  파이프라인 내부 판단\n- 최종 보고자\n  reporter.md" as runtime
+
+rectangle "Runtime Runner\n\n- local child process\n- docker run --rm\n- repo/runDir bind mount\n- env allowlist\n- network policy" as runner
+
+rectangle "Provider Adapter\n\n- Codex\n- Claude\n- Antigravity\n- Custom CLI\n\nstdout/file output 계약" as provider
+
+rectangle "Validation Runner\n\n- buildCommand\n- testCommand\n- validationCommands\n\nselected runtime에서 실행" as validation
+
+rectangle "프로젝트 저장소\n\n- .harness.json\n  pipeline / agents / runner\n  validation / policy / cleanup\n- 현재 git 브랜치\n- 소스 코드" as project
 
 database "메모리 저장소\n\n.harness/memory\nruns.jsonl\nrepos.json" as memory
 
-rectangle "실행 산출물\n\nruns/<runId>\nmanifest.json\n프롬프트 / 로그 / 단계 결과" as artifacts
+rectangle "실행 산출물\n\nruns/<runId>\nmanifest.json\nrequest / prompt\nstdout / stderr\nreporter.md\nchanges.patch" as artifacts
+
+rectangle "관찰 + 정리\n\nharness show\nharness watch\nharness clean\nclean --worktrees" as observe
 
 cloud "외부 알림 채널\n선택 연결" as external
 
 user --> input
-input --> hermes
+input --> cli
 
+cli --> runtime
+cli --> hermes
+cli --> observe
 hermes --> runtime
 runtime --> project
+runtime --> runner
 runtime --> artifacts
+runner --> provider
+runner --> validation
+provider --> project
+validation --> project
 artifacts --> memory
 memory --> hermes
+observe --> artifacts
 
 hermes --> project
 hermes --> artifacts
 hermes --> external
+
+note bottom of cli
+CLI는 직접 실행(run)과 운영(hermes),
+관찰(show/watch), 정리(clean)를 라우팅한다.
+end note
 
 note bottom of hermes
 헤르메스 운영자는 하네스 밖에서
@@ -51,11 +75,18 @@ note bottom of runtime
 작업자 결과와 검증 결과를 판단한다.
 end note
 
+note bottom of runner
+Docker runner는 필수가 아니라 선택 옵션이다.
+기본 실행은 local-first 모델을 유지한다.
+end note
+
 legend bottom
   == 핵심 구분 ==
+  CLI 인터페이스: 명령 라우팅과 사용자 진입점
   헤르메스 운영자: 큐, 메모리, 정책, 승격, 리포트, 알림 관리
   헤르메스 감독자: 파이프라인 내부 판단
-  하네스 실행기: 에이전트 CLI와 검증 명령 실행
+  하네스 실행기: config, workspace, pipeline, manifest 관리
+  Runtime Runner: provider CLI와 검증 명령 실행 위치 선택
 endlegend
 
 @enduml
