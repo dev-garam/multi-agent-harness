@@ -253,7 +253,10 @@ async function runValidationStage({ repo, runDir, step, attempt, validationComma
 
   return {
     failures,
-    previousOutputs: nextPreviousOutputs
+    previousOutputs: harnessRuntime.trimPreviousOutputs(nextPreviousOutputs, {
+      stepId: step.id,
+      stage: 'validation'
+    })
   };
 }
 
@@ -633,14 +636,14 @@ export async function runPipeline(options, request) {
         agent: stepAgent.name,
         command: stepAgent.command,
         agentVersion: stepAgentVersion,
-      sandbox: step.sandbox || 'read-only',
-      approval: step.approval || 'never',
-      model: step.model || null,
-      outputMode: stepAgent.outputMode,
-      capabilities: stepAgent.capabilities,
-      customAgent: stepAgent.custom,
-      runtime: runtime.mode
-    });
+        sandbox: step.sandbox || 'read-only',
+        approval: step.approval || 'never',
+        model: step.model || null,
+        outputMode: stepAgent.outputMode,
+        capabilities: stepAgent.capabilities,
+        customAgent: stepAgent.custom,
+        runtime: runtime.mode
+      });
 
       if (validationAfter.has(baseStep.id)) {
         const skipped = {

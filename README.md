@@ -110,7 +110,7 @@ harness run --repo <path> [options] "<request>"
 harness doctor [--repo <path>] [--agent <provider>]
 harness show [--latest|<runId>] [--json]
 harness hermes <subcommand> [options] [request]
-harness eval [--json]
+harness eval [--repo <path>] [--json]
 harness init-project --repo <path> [--refresh] [--interactive] [--apply]
 harness install-ide-task --repo <path>
 harness watch [--interval <ms>] [--once] [--include-existing]
@@ -131,7 +131,7 @@ harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
 - `doctor`: 에이전트 CLI 연결 상태를 확인합니다.
 - `show`: `runs/<runId>/manifest.json`을 사람이 읽기 좋은 요약 또는 JSON summary로 보여줍니다.
 - `hermes`: Hermes top-level 운영 명령을 실행합니다.
-- `eval`: 하네스 자체 회귀 게이트를 실행하고 `.harness/eval/`에 결과를 남깁니다.
+- `eval`: 대상 repo의 `.harness.json`을 기준으로 정적 하네스 준비도 점검을 실행하고 `.harness/eval/`에 결과를 남깁니다.
 - `init-project`: 대상 프로젝트를 읽어 `.harness.json` 기본 파일을 만들고 package scripts/git branch를 가능한 범위에서 자동 반영합니다.
 - `install-ide-task`: 대상 프로젝트의 `.vscode/tasks.json`에 `Harness: Run` 작업을 추가합니다.
 - `watch`: `runs/`의 manifest 변화를 관찰하며 run, step, validation, Hermes decision, 완료 상태를 터미널에 표시합니다.

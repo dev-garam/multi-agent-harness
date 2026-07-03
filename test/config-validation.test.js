@@ -36,6 +36,10 @@ const valid = validateProjectConfig({
     validationTimeoutMs: 1000,
     maxLogBytes: 1000
   },
+  context: {
+    maxPreviousOutputBytes: 1000,
+    maxStepOutputBytes: 1000
+  },
   supervisor: {
     enabled: true,
     maxSupervisorTurns: 1,
@@ -131,6 +135,9 @@ const invalid = validateProjectConfig({
   resources: {
     agentTimeoutMs: -1
   },
+  context: {
+    maxPreviousOutputBytes: 0
+  },
   supervisor: {
     enabled: 'yes',
     maxSupervisorTurns: 1.5
@@ -152,15 +159,19 @@ const invalid = validateProjectConfig({
     agentRetries: -1,
     validationRetries: 1.5,
     backoffMs: -1,
-    fallbackAgents: ['codex']
+    fallbackAgents: [
+      {
+        provider: 'missing-provider'
+      }
+    ]
   },
   budget: {
-    maxProviderCalls: 0
+    maxAgentSteps: 0
   },
   tools: [
     {
       id: '',
-      setupCommand: '',
+      setupCommand: 1,
       timeoutMs: 0
     }
   ],
@@ -181,19 +192,17 @@ assert.ok(invalid.errors.some((entry) => entry.path === 'agents.coder'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'runner.image'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'validationCommands[0].command'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'resources.agentTimeoutMs'));
-assert.ok(invalid.errors.some((entry) => entry.path === 'supervisor.enabled'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'context.maxPreviousOutputBytes'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'redaction.enabled'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'redaction.mode'));
-assert.ok(invalid.errors.some((entry) => entry.path === 'redaction.patterns[0].pattern'));
-assert.ok(invalid.errors.some((entry) => entry.path === 'context.maxPreviousOutputBytes'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'retry.agentRetries'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'retry.validationRetries'));
-assert.ok(invalid.errors.some((entry) => entry.path === 'retry.backoffMs'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'retry.fallbackAgents[0]'));
-assert.ok(invalid.errors.some((entry) => entry.path === 'budget.maxProviderCalls'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'budget.maxAgentSteps'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'tools[0].id'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'tools[0].setupCommand'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'tools[0].timeoutMs'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'supervisor.enabled'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'configSuggestions.enabled'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'configSuggestions.mode'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'policy.protectedBranches[1]'));

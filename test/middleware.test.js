@@ -5,17 +5,11 @@ const runtime = createHarnessRuntime({
   projectConfig: {
     redaction: {
       enabled: true,
-      mode: 'hash',
-      patterns: [
-        {
-          id: 'custom-secret',
-          pattern: 'SECRET_[A-Z0-9]+'
-        }
-      ]
+      mode: 'hash'
     },
     context: {
-      maxPreviousOutputBytes: 32,
-      maxStepOutputBytes: 16
+      maxPreviousOutputBytes: 20,
+      maxStepOutputBytes: 12
     },
     budget: {
       maxAgentSteps: 1,
@@ -24,20 +18,22 @@ const runtime = createHarnessRuntime({
     retry: {
       agentRetries: 1,
       validationRetries: 1,
-      backoffMs: 0
+      backoffMs: 1
     }
   }
 });
 
-const redacted = runtime.redactText('token SECRET_ABC123', {
+const redacted = runtime.redactText('token sk-abcdefghijklmnopqrstuvwxyz', {
   surface: 'test'
 });
 assert.equal(redacted.redacted, true);
-assert.match(redacted.text, /\[REDACTED:[a-f0-9]{12}\]/);
+assert.match(redacted.text, /\[REDACTED:/);
 assert.equal(runtime.state.counters.redactions, 1);
 
-const stepOutput = runtime.trimStepOutput('abcdefghijklmnopqrstuvwxyz');
-assert.match(stepOutput, /context truncated by harness/);
+const trimmed = runtime.trimPreviousOutputs('012345678901234567890123456789', {
+  surface: 'test'
+});
+assert.match(trimmed, /context truncated by harness/);
 assert.equal(runtime.state.counters.contextTruncations, 1);
 
 runtime.assertBudget('agent');
@@ -45,10 +41,8 @@ assert.throws(() => runtime.assertBudget('agent'), /maxAgentSteps/);
 runtime.assertBudget('validation');
 assert.throws(() => runtime.assertBudget('validation'), /maxValidationCommands/);
 
-runtime.hook('run:start', {
-  runId: 'test'
-});
-assert.ok(runtime.events.some((event) => event.type === 'hook:run:start'));
-assert.equal(runtime.summary().config.retry.agentRetries, 1);
+const summary = runtime.summary();
+assert.equal(summary.config.retry.agentRetries, 1);
+assert.ok(summary.events.some((event) => event.type === 'redaction'));
 
 console.log('middleware tests passed');

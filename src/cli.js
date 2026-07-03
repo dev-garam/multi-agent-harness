@@ -19,7 +19,7 @@ function usage() {
     '  harness doctor [--repo <path>] [--agent <provider>]',
     '  harness show [--latest|<runId>] [--json]',
     '  harness hermes <subcommand> [options] [request]',
-    '  harness eval [--json]',
+    '  harness eval [--repo <path>] [--json]',
     '  harness watch [--interval <ms>] [--once] [--include-existing]',
     '  harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]',
     '',
@@ -46,7 +46,7 @@ function usage() {
     '  report                            Print Hermes operations report',
     '',
     'Eval:',
-    '  eval                              Run harness regression gates and write .harness/eval report',
+    '  eval                              Run static harness readiness checks',
     '',
     'Shared options:',
     '  --repo <path>                     Target repository, defaults to current directory where supported',
@@ -213,6 +213,7 @@ export async function main(args) {
 
   if (parsed.command === 'eval') {
     console.log(await runHarnessEval({
+      repo: parsed.options.repo || process.cwd(),
       json: parsed.options.json === true
     }));
     return;

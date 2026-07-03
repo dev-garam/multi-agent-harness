@@ -162,6 +162,7 @@ These fields configure the harness runtime layer around agent, validation, and t
 - `redaction.enabled` must be boolean. `mode` must be `mask` or `hash`.
 - `context.maxPreviousOutputBytes` and `context.maxStepOutputBytes` must be positive numbers.
 - `retry.agentRetries` and `retry.validationRetries` must be non-negative integers.
+- `retry.backoffMs` must be a non-negative number.
 - `retry.fallbackAgents` uses the same agent object shape as `agent`.
 - `budget` values must be positive numbers.
 - `tools` setup and teardown commands run through the selected runtime runner and are recorded in `manifest.tools.lifecycle`.
