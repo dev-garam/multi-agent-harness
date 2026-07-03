@@ -13,6 +13,27 @@ Do not present unsupported or contradicted claims as facts.
 If the Hermes recommended final status is failed, incomplete, or success_with_risks, surface that clearly.
 If the verifier verdict is fail or pass_with_risks, surface that clearly.
 
+End your response with exactly one fenced JSON block labeled `json`.
+The harness stores this block as the machine-readable reporter summary.
+
+Use this schema:
+
+```json
+{
+  "status": "success | success_with_risks | failed | incomplete",
+  "summary": "One sentence summary of the run.",
+  "changedFiles": ["relative/path.ext"],
+  "validation": [
+    {
+      "id": "test",
+      "status": "succeeded | failed | skipped",
+      "exitCode": 0
+    }
+  ],
+  "risks": ["Short risk or follow-up, or empty array."]
+}
+```
+
 User request:
 {{REQUEST}}
 

@@ -7,6 +7,15 @@ import { spawnSync } from 'node:child_process';
 const harnessRoot = path.resolve(new URL('..', import.meta.url).pathname);
 const harnessBin = path.join(harnessRoot, 'bin', 'harness');
 
+function runGit(args, repo) {
+  const result = spawnSync('git', args, {
+    cwd: repo,
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, `git failed: ${args.join(' ')}\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  return result.stdout.trim();
+}
+
 function writeMockAgent(repo) {
   const mockPath = path.join(repo, 'mock-agent.cjs');
   writeFileSync(mockPath, `
@@ -28,6 +37,29 @@ function decision(value) {
 }
 
 let body = '# ' + stepId + '\\n\\nmock output';
+
+if (stepId.startsWith('reporter')) {
+  body = '# ' + stepId + '\\n\\n' + fence + 'json\\n' + JSON.stringify({
+    status: 'success',
+    summary: 'mock report',
+    changedFiles: [],
+    validation: [],
+    risks: []
+  }, null, 2) + '\\n' + fence + '\\n';
+}
+
+if (scenario === 'workspace' && stepId === 'coder') {
+  fs.writeFileSync('workspace-output.txt', 'created in isolated workspace\\n');
+}
+
+if (scenario === 'agent-output' && stepId === 'coder') {
+  console.log('agent produced output');
+}
+
+if (scenario === 'agent-timeout' && stepId === 'coder') {
+  setTimeout(() => {}, 10000);
+  return;
+}
 
 if (stepId.startsWith('hermes')) {
   const hermesCount = Object.keys(state).filter((key) => key.startsWith('hermes')).reduce((sum, key) => sum + state[key], 0);
@@ -61,9 +93,24 @@ function writeProjectConfig(repo, scenario) {
     validationCommands: [
       {
         id: 'mock-validation',
-        command: "node -e \"require('fs').appendFileSync('.validation.log', 'validated\\\\n')\""
+        command: scenario === 'validation-timeout'
+          ? "node -e \"setTimeout(() => {}, 10000)\""
+          : "node -e \"require('fs').appendFileSync('.validation.log', 'validated\\\\n')\""
       }
     ],
+    resources: scenario === 'agent-timeout'
+      ? {
+          agentTimeoutMs: 100,
+          validationTimeoutMs: 1000,
+          maxLogBytes: 1024
+        }
+      : scenario === 'validation-timeout'
+        ? {
+            agentTimeoutMs: 1000,
+            validationTimeoutMs: 100,
+            maxLogBytes: 1024
+          }
+        : undefined,
     supervisor: {
       enabled: true,
       maxSupervisorTurns: 4,
@@ -107,9 +154,131 @@ function runHarness(scenario) {
   return { repo, runDir, manifest, steps };
 }
 
+function runBlockedHarness() {
+  const repo = mkdtempSync(path.join(tmpdir(), 'harness-policy-blocked-'));
+  writeProjectConfig(repo, 'blocked');
+
+  const result = spawnSync('node', [harnessBin, 'run', '--repo', repo, '--pipeline', 'quick_fix', '데이터베이스 전체 삭제'], {
+    cwd: harnessRoot,
+    env: {
+      ...process.env,
+      HARNESS_TEST_SCENARIO: 'blocked'
+    },
+    encoding: 'utf8'
+  });
+
+  assert.notEqual(result.status, 0, 'destructive direct run should be blocked before agent execution');
+  assert.match(result.stderr, /Policy blocked this run/);
+  const match = result.stderr.match(/Run dir: (.+)/);
+  assert.ok(match, 'run dir missing for blocked policy run');
+  const manifest = JSON.parse(readFileSync(path.join(match[1].trim(), 'manifest.json'), 'utf8'));
+  assert.equal(manifest.status, 'failed');
+  assert.equal(manifest.policy.decision.allowed, false);
+  assert.equal(manifest.policy.decision.risk.destructive, true);
+  assert.throws(() => readFileSync(path.join(repo, '.mock-steps.log'), 'utf8'));
+}
+
+function runPatchWorkspaceHarness() {
+  const repo = mkdtempSync(path.join(tmpdir(), 'harness-workspace-'));
+  writeProjectConfig(repo, 'workspace');
+  runGit(['init', '-b', 'main'], repo);
+  runGit(['config', 'user.email', 'test@example.com'], repo);
+  runGit(['config', 'user.name', 'Test'], repo);
+  runGit(['add', '.'], repo);
+  runGit(['commit', '-m', 'init'], repo);
+
+  const result = spawnSync('node', [harnessBin, 'run', '--repo', repo, '--pipeline', 'quick_fix', '--workspace-mode', 'patch', 'workspace test'], {
+    cwd: harnessRoot,
+    env: {
+      ...process.env,
+      HARNESS_TEST_SCENARIO: 'workspace'
+    },
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0, `workspace patch run failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  assert.throws(() => readFileSync(path.join(repo, 'workspace-output.txt'), 'utf8'));
+  const match = result.stderr.match(/Run dir: (.+)/);
+  assert.ok(match, 'run dir missing for workspace patch run');
+  const manifest = JSON.parse(readFileSync(path.join(match[1].trim(), 'manifest.json'), 'utf8'));
+  assert.equal(manifest.workspace.mode, 'patch');
+  assert.equal(manifest.workspace.isolated, true);
+  assert.equal(manifest.workspace.worktreeRemoved, true);
+  assert.match(readFileSync(manifest.workspace.patchPath, 'utf8'), /workspace-output\.txt/);
+}
+
+function runAgentTimeoutHarness() {
+  const repo = mkdtempSync(path.join(tmpdir(), 'harness-agent-timeout-'));
+  writeProjectConfig(repo, 'agent-timeout');
+
+  const result = spawnSync('node', [harnessBin, 'run', '--repo', repo, '--pipeline', 'quick_fix', 'agent timeout test'], {
+    cwd: harnessRoot,
+    env: {
+      ...process.env,
+      HARNESS_TEST_SCENARIO: 'agent-timeout'
+    },
+    encoding: 'utf8'
+  });
+
+  assert.notEqual(result.status, 0, 'agent timeout should fail the run');
+  assert.match(result.stderr, /Step failed: coder/);
+  const match = result.stderr.match(/Run dir: (.+)/);
+  assert.ok(match, 'run dir missing for agent timeout run');
+  const manifest = JSON.parse(readFileSync(path.join(match[1].trim(), 'manifest.json'), 'utf8'));
+  const coder = manifest.steps.find((entry) => entry.stepId === 'coder');
+  assert.equal(coder.timedOut, true);
+  assert.equal(coder.exitCode, 124);
+}
+
+function runValidationTimeoutHarness() {
+  const repo = mkdtempSync(path.join(tmpdir(), 'harness-validation-timeout-'));
+  writeProjectConfig(repo, 'validation-timeout');
+
+  const result = spawnSync('node', [harnessBin, 'run', '--repo', repo, '--pipeline', 'quick_fix', 'validation timeout test'], {
+    cwd: harnessRoot,
+    env: {
+      ...process.env,
+      HARNESS_TEST_SCENARIO: 'validation-timeout'
+    },
+    encoding: 'utf8'
+  });
+
+  assert.notEqual(result.status, 0, 'validation timeout should fail the run');
+  assert.match(result.stderr, /Validation failed/);
+  const match = result.stderr.match(/Run dir: (.+)/);
+  assert.ok(match, 'run dir missing for validation timeout run');
+  const manifest = JSON.parse(readFileSync(path.join(match[1].trim(), 'manifest.json'), 'utf8'));
+  const validation = manifest.steps.find((entry) => entry.type === 'validation' && entry.id === 'mock-validation');
+  assert.equal(validation.timedOut, true);
+  assert.equal(validation.exitCode, 124);
+}
+
+function runAgentOutputHarness() {
+  const repo = mkdtempSync(path.join(tmpdir(), 'harness-agent-output-'));
+  writeProjectConfig(repo, 'agent-output');
+
+  const result = spawnSync('node', [harnessBin, 'run', '--repo', repo, '--pipeline', 'quick_fix', 'agent output test'], {
+    cwd: harnessRoot,
+    env: {
+      ...process.env,
+      HARNESS_TEST_SCENARIO: 'agent-output'
+    },
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0, `agent output run failed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  const match = result.stderr.match(/Run dir: (.+)/);
+  assert.ok(match, 'run dir missing for agent output run');
+  const manifest = JSON.parse(readFileSync(path.join(match[1].trim(), 'manifest.json'), 'utf8'));
+  const coder = manifest.steps.find((entry) => entry.stepId === 'coder');
+  assert.ok(coder.lastOutputAt, 'agent step should record lastOutputAt when output is produced');
+}
+
 const rerun = runHarness('rerun');
 assert.ok(rerun.steps.includes('coder-retry-1'), 'Hermes should rerun coder');
 assert.deepEqual(rerun.manifest.supervisorDecisions.map((entry) => entry.nextAction), ['rerun_step', 'continue']);
+assert.equal(rerun.manifest.reporterSummary.valid, true);
+assert.equal(rerun.manifest.reporterSummary.status, 'success');
 assert.equal(rerun.manifest.steps.find((entry) => entry.stepId === 'hermes').agent, 'mock-supervisor');
 assert.equal(rerun.manifest.cleanup.status, 'succeeded');
 assert.deepEqual(rerun.manifest.cleanup.excludedRuns, [rerun.manifest.runId]);
@@ -123,5 +292,11 @@ assert.deepEqual(escalation.manifest.supervisorDecisions.map((entry) => entry.ne
 assert.equal(escalation.manifest.pipelineChanges.length, 1);
 assert.equal(escalation.manifest.pipelineChanges[0].to, 'safe_fix');
 assert.ok(escalation.steps.includes('verifier'), 'safe_fix escalation should run verifier');
+
+runBlockedHarness();
+runPatchWorkspaceHarness();
+runAgentTimeoutHarness();
+runValidationTimeoutHarness();
+runAgentOutputHarness();
 
 console.log('hermes controller tests passed');

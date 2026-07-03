@@ -2,8 +2,13 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readText } from './fs-utils.js';
+import { harnessRoot, readText } from './fs-utils.js';
 import { validationCommandsFromProjectConfig } from './validation.js';
+import { inspectHarnessGitignore, trustBoundaryWarnings } from './trust.js';
+import { formatConfigValidationIssues, validateProjectConfig } from './config-validation.js';
+import { loadConfig } from './config.js';
+import { listProviderCapabilities, resolveAgentConfig } from './agent.js';
+import { assertRuntimeRunnerAvailable, runtimeRunnerFromOptions } from './runtime-runner.js';
 
 const harnessBin = fileURLToPath(new URL('../bin/harness', import.meta.url));
 
@@ -131,29 +136,86 @@ export async function runDoctor({ repo = process.cwd(), agent = null } = {}) {
   const { configPath, projectConfig, exists } = await readProjectConfig(resolvedRepo);
   printCheck(exists ? 'ok' : 'warn', 'project .harness.json', exists ? configPath : 'not found; defaults will be used');
 
-  const selectedAgent = agent || projectConfig.agent?.provider || projectConfig.agent || 'codex';
-  const agentCommands = {
-    codex: 'codex',
-    claude: 'claude',
-    antigravity: 'antigravity'
-  };
-  const agentCommand = typeof projectConfig.agent === 'object' && projectConfig.agent.command
-    ? projectConfig.agent.command
-    : agentCommands[selectedAgent] || selectedAgent;
-  const agentVersion = await commandVersion(agentCommand);
-  printCheck(agentVersion.ok ? 'ok' : 'fail', `selected agent: ${selectedAgent}`, agentVersion.ok ? agentVersion.detail : `${agentCommand} not available`);
-  hasFailure = hasFailure || !agentVersion.ok;
+  const harnessConfig = await loadConfig();
+  const configValidation = validateProjectConfig(projectConfig, { harnessConfig });
+  printCheck(configValidation.valid ? configValidation.warnings.length > 0 ? 'warn' : 'ok' : 'fail', 'project config validation',
+    configValidation.errors.length > 0
+      ? `${configValidation.errors.length} error(s)`
+      : configValidation.warnings.length > 0
+        ? `${configValidation.warnings.length} warning(s)`
+        : 'ok');
+  if (configValidation.errors.length > 0 || configValidation.warnings.length > 0) {
+    console.log(formatConfigValidationIssues(configValidation));
+  }
+  hasFailure = hasFailure || !configValidation.valid;
 
-  for (const [provider, command] of Object.entries(agentCommands)) {
-    if (provider === selectedAgent) {
+  let selectedRuntime = null;
+  let selectedAgent = null;
+  try {
+    selectedAgent = resolveAgentConfig({
+      options: agent ? { agent } : {},
+      projectConfig
+    });
+    const agentVersion = await commandVersion(selectedAgent.command, selectedAgent.versionArgs);
+    printCheck(agentVersion.ok ? 'ok' : 'fail', `selected agent: ${selectedAgent.name}`, agentVersion.ok ? agentVersion.detail : `${selectedAgent.command} not available`);
+    printCheck('ok', 'selected agent contract',
+      `output=${selectedAgent.outputMode}, defaultTimeoutMs=${selectedAgent.defaultTimeoutMs}, custom=${selectedAgent.custom}`);
+    hasFailure = hasFailure || !agentVersion.ok;
+  } catch (error) {
+    printCheck('fail', 'selected agent', error instanceof Error ? error.message : String(error));
+    hasFailure = true;
+  }
+
+  for (const [provider, contract] of Object.entries(listProviderCapabilities())) {
+    if (provider === selectedAgent?.name) {
       continue;
     }
-    const version = await commandVersion(command);
-    printCheck(version.ok ? 'ok' : 'warn', `optional agent: ${provider}`, version.ok ? version.detail : `${command} not available`);
+    const version = await commandVersion(contract.command, contract.versionArgs);
+    printCheck(version.ok ? 'ok' : 'warn', `optional agent: ${provider}`,
+      version.ok ? `${version.detail}; output=${contract.outputMode}` : `${contract.command} not available`);
+  }
+
+  try {
+    selectedRuntime = runtimeRunnerFromOptions({}, projectConfig, {
+      repo: resolvedRepo,
+      runDir: path.join(harnessRoot, 'runs', '.doctor')
+    });
+    if (selectedRuntime.mode === 'docker') {
+      try {
+        assertRuntimeRunnerAvailable(selectedRuntime);
+        printCheck('ok', 'runtime runner', `${selectedRuntime.description}, network=${selectedRuntime.network}`);
+      } catch (error) {
+        printCheck('fail', 'runtime runner', error instanceof Error ? error.message : String(error));
+        hasFailure = true;
+      }
+    } else {
+      printCheck('ok', 'runtime runner', selectedRuntime.description);
+    }
+  } catch (error) {
+    printCheck('fail', 'runtime runner', error instanceof Error ? error.message : String(error));
+    hasFailure = true;
   }
 
   const validations = validationCommandsFromProjectConfig(projectConfig);
   printCheck(validations.length > 0 ? 'ok' : 'warn', 'validation commands', validations.length > 0 ? `${validations.length} configured` : 'none configured');
+
+  if (validations.length > 0) {
+    const validationRuntime = selectedRuntime?.mode === 'docker'
+      ? 'configured Docker runner'
+      : 'local shell';
+    printCheck('warn', 'validation command trust boundary', `configured commands execute through the ${validationRuntime}`);
+  }
+
+  const customAgent = selectedAgent?.custom;
+  if (customAgent) {
+    printCheck('warn', 'custom agent trust boundary', 'custom command/args execute through the selected runtime runner');
+  }
+
+  const trustWarnings = trustBoundaryWarnings(projectConfig).filter((entry) => entry.severity === 'warning');
+  printCheck(trustWarnings.length > 0 ? 'warn' : 'ok', 'trust boundary warnings', trustWarnings.length > 0 ? `${trustWarnings.length} warning(s); see docs/security-model.md` : 'none');
+
+  const gitignore = await inspectHarnessGitignore(harnessRoot);
+  printCheck(gitignore.status, 'harness .gitignore runtime exclusions', gitignore.message);
 
   if (hasFailure) {
     throw new Error('Doctor found required connection problems.');

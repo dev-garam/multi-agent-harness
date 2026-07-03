@@ -1,12 +1,19 @@
-import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { writeText } from './fs-utils.js';
+import { spawnRuntimeCommand } from './runtime-runner.js';
 
 const defaultProviders = {
   codex: {
     command: 'codex',
     versionArgs: ['--version'],
     outputMode: 'file',
+    defaultTimeoutMs: 10 * 60 * 1000,
+    capabilities: {
+      outputMode: 'file',
+      supportsModel: true,
+      supportsSandbox: true,
+      requiresOutputFile: true
+    },
     buildArgs({ repo, step, prompt, finalPath }) {
       const args = [
         'exec',
@@ -31,6 +38,13 @@ const defaultProviders = {
     command: 'claude',
     versionArgs: ['--version'],
     outputMode: 'stdout',
+    defaultTimeoutMs: 10 * 60 * 1000,
+    capabilities: {
+      outputMode: 'stdout',
+      supportsModel: true,
+      supportsSandbox: false,
+      requiresOutputFile: false
+    },
     buildArgs({ step, prompt }) {
       const args = ['-p', prompt, '--output-format', 'text'];
 
@@ -45,11 +59,46 @@ const defaultProviders = {
     command: 'antigravity',
     versionArgs: ['--version'],
     outputMode: 'stdout',
+    defaultTimeoutMs: 10 * 60 * 1000,
+    capabilities: {
+      outputMode: 'stdout',
+      supportsModel: false,
+      supportsSandbox: false,
+      requiresOutputFile: false
+    },
     buildArgs({ prompt }) {
       return ['run', '--prompt', prompt];
     }
   }
 };
+
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_MAX_LOG_BYTES = 1024 * 1024;
+const OUTPUT_MODES = new Set(['file', 'stdout']);
+
+export function knownProviderNames() {
+  return Object.keys(defaultProviders);
+}
+
+export function providerCapabilities(providerName) {
+  const provider = defaultProviders[providerName];
+  return provider?.capabilities || null;
+}
+
+export function listProviderCapabilities() {
+  return Object.fromEntries(
+    Object.entries(defaultProviders).map(([name, provider]) => [
+      name,
+      {
+        command: provider.command,
+        versionArgs: provider.versionArgs,
+        outputMode: provider.outputMode,
+        defaultTimeoutMs: provider.defaultTimeoutMs,
+        capabilities: provider.capabilities
+      }
+    ])
+  );
+}
 
 function asArray(value) {
   if (!value) {
@@ -76,11 +125,27 @@ function providerFromConfig(agentConfig = {}) {
     throw new Error(`Unknown agent provider "${providerName}". Available: ${names}, or configure agent.command.`);
   }
 
+  const outputMode = agentConfig.outputMode || base?.outputMode || 'stdout';
+  if (!OUTPUT_MODES.has(outputMode)) {
+    throw new Error(`Invalid outputMode "${outputMode}" for agent provider "${providerName}". Available: file, stdout.`);
+  }
+
+  if (agentConfig.command !== undefined && String(agentConfig.command).trim().length === 0) {
+    throw new Error(`Agent provider "${providerName}" command must be a non-empty string.`);
+  }
+
   return {
     name: providerName,
     command: agentConfig.command || base?.command,
     versionArgs: agentConfig.versionArgs || base?.versionArgs || ['--version'],
-    outputMode: agentConfig.outputMode || base?.outputMode || 'stdout',
+    outputMode,
+    defaultTimeoutMs: Number(agentConfig.defaultTimeoutMs || base?.defaultTimeoutMs || DEFAULT_TIMEOUT_MS),
+    capabilities: {
+      ...(base?.capabilities || {}),
+      ...(agentConfig.capabilities || {}),
+      outputMode
+    },
+    custom: !base || Boolean(agentConfig.command || agentConfig.args),
     args: agentConfig.args,
     base
   };
@@ -98,11 +163,28 @@ export function resolveAgentConfig({ options = {}, projectConfig = {} } = {}) {
   });
 }
 
-export async function runAgentStep({ repo, runDir, step, prompt, promptPath, agent }) {
+function appendLimited(current, value, maxBytes) {
+  if (Buffer.byteLength(current) >= maxBytes) {
+    return { text: current, truncated: true };
+  }
+
+  const next = current + value;
+  if (Buffer.byteLength(next) <= maxBytes) {
+    return { text: next, truncated: false };
+  }
+
+  const available = Math.max(0, maxBytes - Buffer.byteLength(current));
+  const limited = current + Buffer.from(value).subarray(0, available).toString();
+  return { text: limited, truncated: true };
+}
+
+export async function runAgentStep({ repo, runDir, step, prompt, promptPath, agent, resources = {}, runtime = null }) {
   const startedAt = new Date();
   const eventsPath = path.join(runDir, `${step.id}.${agent.name}.stdout.log`);
   const stderrPath = path.join(runDir, `${step.id}.${agent.name}.stderr.log`);
   const finalPath = path.join(runDir, `${step.id}.md`);
+  const timeoutMs = Number(step.timeoutMs || resources.agentTimeoutMs || resources.timeoutMs || agent.defaultTimeoutMs || DEFAULT_TIMEOUT_MS);
+  const maxLogBytes = Number(step.maxLogBytes || resources.maxLogBytes || DEFAULT_MAX_LOG_BYTES);
 
   const context = { repo, step, prompt, promptPath, finalPath };
   const args = agent.args
@@ -116,23 +198,65 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
   let stdout = '';
   let stderr = '';
   let exitCode = 0;
+  let timedOut = false;
+  let closed = false;
+  let cancelled = false;
+  let cancellationSignal = null;
+  let stdoutTruncated = false;
+  let stderrTruncated = false;
+  let lastOutputAt = null;
 
   try {
-    const child = spawn(agent.command, args, {
+    const child = spawnRuntimeCommand({
+      runtime,
+      command: agent.command,
+      args,
       cwd: repo,
-      env: process.env,
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
+    const timer = setTimeout(() => {
+      timedOut = true;
+      stderr += `\nTimed out after ${timeoutMs}ms\n`;
+      child.kill('SIGTERM');
+      setTimeout(() => {
+        if (!closed) {
+          child.kill('SIGKILL');
+        }
+      }, 1000).unref();
+    }, timeoutMs);
+
+    const cancel = (signal) => {
+      cancelled = true;
+      cancellationSignal = signal;
+      stderr += `\nCancelled by ${signal}\n`;
+      child.kill('SIGTERM');
+      setTimeout(() => {
+        if (!closed) {
+          child.kill('SIGKILL');
+        }
+      }, 1000).unref();
+    };
+    const onSigint = () => cancel('SIGINT');
+    const onSigterm = () => cancel('SIGTERM');
+    process.once('SIGINT', onSigint);
+    process.once('SIGTERM', onSigterm);
+
     child.stdout.on('data', (chunk) => {
       const value = chunk.toString();
-      stdout += value;
+      lastOutputAt = new Date();
+      const limited = appendLimited(stdout, value, maxLogBytes);
+      stdout = limited.text;
+      stdoutTruncated = stdoutTruncated || limited.truncated;
       process.stdout.write(value);
     });
 
     child.stderr.on('data', (chunk) => {
       const value = chunk.toString();
-      stderr += value;
+      lastOutputAt = new Date();
+      const limited = appendLimited(stderr, value, maxLogBytes);
+      stderr = limited.text;
+      stderrTruncated = stderrTruncated || limited.truncated;
       process.stderr.write(value);
     });
 
@@ -141,7 +265,13 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
         stderr += `${error.message}\n`;
         resolve(1);
       });
-      child.on('close', resolve);
+      child.on('close', (code) => {
+        closed = true;
+        clearTimeout(timer);
+        process.removeListener('SIGINT', onSigint);
+        process.removeListener('SIGTERM', onSigterm);
+        resolve(cancelled ? 130 : timedOut ? 124 : code);
+      });
     });
   } catch (error) {
     stderr += `${error instanceof Error ? error.message : String(error)}\n`;
@@ -162,6 +292,18 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
     exitCode,
     agent: agent.name,
     command: agent.command,
+    outputMode: agent.outputMode,
+    capabilities: agent.capabilities,
+    customAgent: agent.custom,
+    runtime: runtime?.mode || 'local',
+    timedOut,
+    cancelled,
+    cancellationSignal,
+    timeoutMs,
+    maxLogBytes,
+    stdoutTruncated,
+    stderrTruncated,
+    lastOutputAt: lastOutputAt ? lastOutputAt.toISOString() : null,
     sandbox: step.sandbox || 'read-only',
     approval: step.approval || 'never',
     model: step.model || null,
@@ -174,12 +316,16 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
   };
 }
 
-export async function getAgentVersion(agent, { skip = false } = {}) {
+export async function getAgentVersion(agent, { skip = false, runtime = null, cwd = process.cwd() } = {}) {
   if (skip) {
     return 'skipped';
   }
 
-  const child = spawn(agent.command, agent.versionArgs, {
+  const child = spawnRuntimeCommand({
+    runtime,
+    command: agent.command,
+    args: agent.versionArgs,
+    cwd,
     stdio: ['ignore', 'pipe', 'pipe']
   });
 

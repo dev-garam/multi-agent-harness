@@ -10,11 +10,20 @@
 
    Hermes를 pipeline 내부 supervisor에서 하네스를 운영하는 top-level autonomous operator로 발전시키기 위한 전체 개발 지도입니다.
 
+2. [Harness Engineering Roadmap](./harness-engineering-roadmap.md)
+
+   하네스를 실행/격리/검증/정책/복구 관점에서 강화하기 위한 개발 지도입니다.
+
 ## Document Map
 
 현재 문서:
 
 - [Hermes Autonomous Operations Roadmap](./hermes-autonomy-roadmap.md)
+- [Harness Engineering Roadmap](./harness-engineering-roadmap.md)
+- [Security Model](./security-model.md)
+- [Artifact Schema](./artifact-schema.md)
+- [Project Config Schema](./config-schema.md)
+- [Showcase Demo](../demos/showcase/README.md)
 - [Hermes Harness Architecture Diagram](./diagrams/hermes-harness-architecture.puml)
 
 향후 문서가 늘어나면 아래 구조로 분기합니다.
@@ -126,6 +135,7 @@ docs/
 - branch/protected branch policy를 `hermes tick` 실행 게이트에 연결
 - report 외부 채널 adapter 구조 구축
 - `webhook`, `slack`, `discord` adapter type과 env 기반 URL 설정 지원
+- mock agent 기반 showcase demo 추가
 
 선택 hardening 후보:
 

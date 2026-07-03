@@ -171,9 +171,35 @@ assert.match(report, /Path: /);
 
 runHarness(['hermes', 'enqueue', '--repo', repo, '--pipeline', 'quick_fix', '--agent', 'mock', '데이터베이스 전체 삭제']);
 const blockedTick = runHarness(['hermes', 'tick']);
-assert.match(blockedTick, /Status: failed/);
+assert.match(blockedTick, /Status: approval_pending/);
 assert.match(blockedTick, /Policy requires human approval/);
 assert.match(blockedTick, /Report: /);
+const approvalTaskId = blockedTick.match(/Task: ([^\n]+)/)?.[1].trim();
+assert.ok(approvalTaskId);
+
+const queueWithApproval = runHarness(['hermes', 'queue']);
+assert.match(queueWithApproval, /approval_pending: 1/);
+
+const approve = runHarness(['hermes', 'approve', '--task', approvalTaskId, '위험성을 확인했고 실행 승인']);
+assert.match(approve, /Hermes approve/);
+assert.match(approve, /Status: pending/);
+
+const approvedTick = runHarness(['hermes', 'tick']);
+assert.match(approvedTick, /Status: done/);
+assert.match(approvedTick, /Run: /);
+
+runHarness(['hermes', 'enqueue', '--repo', repo, '--pipeline', 'quick_fix', '--agent', 'mock', '데이터베이스 전체 삭제']);
+const rejectTick = runHarness(['hermes', 'tick']);
+assert.match(rejectTick, /Status: approval_pending/);
+const rejectTaskId = rejectTick.match(/Task: ([^\n]+)/)?.[1].trim();
+assert.ok(rejectTaskId);
+
+const reject = runHarness(['hermes', 'reject', '--task', rejectTaskId, '위험해서 실행하지 않음']);
+assert.match(reject, /Hermes reject/);
+assert.match(reject, /Status: rejected/);
+
+const queueAfterReject = runHarness(['hermes', 'queue']);
+assert.match(queueAfterReject, /rejected: 1/);
 
 const protectedRepo = mkdtempSync(path.join(tmpdir(), 'harness-hermes-protected-'));
 delete process.env.HERMES_TEST_WEBHOOK_URL_MISSING;
@@ -194,10 +220,9 @@ writeMockAgent(protectedRepo, {
 initMainBranch(protectedRepo);
 runHarness(['hermes', 'enqueue', '--repo', protectedRepo, '--pipeline', 'quick_fix', '--agent', 'mock', '보호 브랜치 정책 확인']);
 const protectedTick = runHarness(['hermes', 'tick']);
-assert.match(protectedTick, /Status: failed/);
+assert.match(protectedTick, /Status: approval_pending/);
 assert.match(protectedTick, /protected branch: main/);
 assert.match(protectedTick, /Run: \(none\)/);
 assert.match(protectedTick, /Notifications: skipped/);
-assert.match(protectedTick, /missing env: HERMES_TEST_WEBHOOK_URL_MISSING/);
 
 console.log('hermes command tests passed');

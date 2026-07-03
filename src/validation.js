@@ -1,6 +1,9 @@
-import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { writeText } from './fs-utils.js';
+import { spawnRuntimeShell } from './runtime-runner.js';
+
+const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_MAX_LOG_BYTES = 1024 * 1024;
 
 function slug(value) {
   return String(value)
@@ -30,7 +33,9 @@ export function validationCommandsFromProjectConfig(projectConfig = {}) {
       if (entry && typeof entry === 'object' && entry.command) {
         commands.push({
           id: entry.id || slug(entry.name || entry.command),
-          command: entry.command
+          command: entry.command,
+          timeoutMs: entry.timeoutMs,
+          maxLogBytes: entry.maxLogBytes
         });
       }
     });
@@ -39,37 +44,98 @@ export function validationCommandsFromProjectConfig(projectConfig = {}) {
   return commands;
 }
 
-export async function runValidationCommand({ repo, runDir, id, command }) {
+function appendLimited(current, value, maxBytes) {
+  if (Buffer.byteLength(current) >= maxBytes) {
+    return { text: current, truncated: true };
+  }
+
+  const next = current + value;
+  if (Buffer.byteLength(next) <= maxBytes) {
+    return { text: next, truncated: false };
+  }
+
+  const available = Math.max(0, maxBytes - Buffer.byteLength(current));
+  const limited = current + Buffer.from(value).subarray(0, available).toString();
+  return { text: limited, truncated: true };
+}
+
+export async function runValidationCommand({ repo, runDir, id, command, timeoutMs = DEFAULT_TIMEOUT_MS, maxLogBytes = DEFAULT_MAX_LOG_BYTES, runtime = null }) {
   const startedAt = new Date();
   const safeId = slug(id);
   const stdoutPath = path.join(runDir, `validation-${safeId}.stdout.log`);
   const stderrPath = path.join(runDir, `validation-${safeId}.stderr.log`);
 
-  const child = spawn(command, {
+  const child = spawnRuntimeShell({
+    runtime,
+    command,
     cwd: repo,
-    env: process.env,
-    shell: true,
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
   let stdout = '';
   let stderr = '';
+  let timedOut = false;
+  let closed = false;
+  let cancelled = false;
+  let cancellationSignal = null;
+  let stdoutTruncated = false;
+  let stderrTruncated = false;
+  let lastOutputAt = null;
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    stderr += `\nTimed out after ${timeoutMs}ms\n`;
+    child.kill('SIGTERM');
+    setTimeout(() => {
+      if (!closed) {
+        child.kill('SIGKILL');
+      }
+    }, 1000).unref();
+  }, timeoutMs);
+
+  const cancel = (signal) => {
+    cancelled = true;
+    cancellationSignal = signal;
+    stderr += `\nCancelled by ${signal}\n`;
+    child.kill('SIGTERM');
+    setTimeout(() => {
+      if (!closed) {
+        child.kill('SIGKILL');
+      }
+    }, 1000).unref();
+  };
+  const onSigint = () => cancel('SIGINT');
+  const onSigterm = () => cancel('SIGTERM');
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
 
   child.stdout.on('data', (chunk) => {
     const value = chunk.toString();
-    stdout += value;
+    lastOutputAt = new Date();
+    const limited = appendLimited(stdout, value, maxLogBytes);
+    stdout = limited.text;
+    stdoutTruncated = stdoutTruncated || limited.truncated;
     process.stdout.write(value);
   });
 
   child.stderr.on('data', (chunk) => {
     const value = chunk.toString();
-    stderr += value;
+    lastOutputAt = new Date();
+    const limited = appendLimited(stderr, value, maxLogBytes);
+    stderr = limited.text;
+    stderrTruncated = stderrTruncated || limited.truncated;
     process.stderr.write(value);
   });
 
   const exitCode = await new Promise((resolve, reject) => {
     child.on('error', reject);
-    child.on('close', resolve);
+    child.on('close', (code) => {
+      closed = true;
+      clearTimeout(timer);
+      process.removeListener('SIGINT', onSigint);
+      process.removeListener('SIGTERM', onSigterm);
+      resolve(cancelled ? 130 : timedOut ? 124 : code);
+    });
   });
 
   const finishedAt = new Date();
@@ -81,8 +147,17 @@ export async function runValidationCommand({ repo, runDir, id, command }) {
     stepId: `validation:${safeId}`,
     id: safeId,
     command,
+    runtime: runtime?.mode || 'local',
     status: exitCode === 0 ? 'succeeded' : 'failed',
     exitCode,
+    timedOut,
+    cancelled,
+    cancellationSignal,
+    timeoutMs,
+    maxLogBytes,
+    stdoutTruncated,
+    stderrTruncated,
+    lastOutputAt: lastOutputAt ? lastOutputAt.toISOString() : null,
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
     durationMs: finishedAt.getTime() - startedAt.getTime(),

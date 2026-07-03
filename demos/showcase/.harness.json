@@ -1,0 +1,52 @@
+{
+  "pipeline": "quick_fix",
+  "workspaceMode": "patch",
+  "protectedBranches": [
+    "main"
+  ],
+  "agent": {
+    "provider": "mock",
+    "command": "node",
+    "versionArgs": [
+      "--version"
+    ],
+    "outputMode": "file",
+    "args": [
+      "./mock-agent.cjs",
+      "{{stepId}}",
+      "{{finalPath}}"
+    ]
+  },
+  "validationCommands": [
+    {
+      "id": "demo-output-exists",
+      "command": "node -e \"const fs=require('fs'); if(!fs.existsSync('demo-output.txt')) { console.error('demo-output.txt missing'); process.exit(1); }\""
+    }
+  ],
+  "supervisor": {
+    "enabled": true,
+    "maxSupervisorTurns": 2,
+    "maxStepRetries": 1,
+    "agent": {
+      "provider": "mock-supervisor",
+      "command": "node",
+      "versionArgs": [
+        "--version"
+      ],
+      "outputMode": "file",
+      "args": [
+        "./mock-agent.cjs",
+        "{{stepId}}",
+        "{{finalPath}}"
+      ]
+    }
+  },
+  "resources": {
+    "agentTimeoutMs": 10000,
+    "validationTimeoutMs": 5000,
+    "maxLogBytes": 65536
+  },
+  "cleanup": {
+    "enabled": false
+  }
+}
