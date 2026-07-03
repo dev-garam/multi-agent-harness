@@ -182,6 +182,117 @@ function validateBoolean(value, path, issues) {
   }
 }
 
+function validateRedaction(value, path, issues) {
+  if (!isPlainObject(value)) {
+    issues.push(issue('error', path, 'must be an object'));
+    return;
+  }
+  if (value.enabled !== undefined) {
+    validateBoolean(value.enabled, `${path}.enabled`, issues);
+  }
+  if (value.mode !== undefined && !['mask', 'hash'].includes(value.mode)) {
+    issues.push(issue('error', `${path}.mode`, 'must be one of: mask, hash'));
+  }
+  if (value.patterns !== undefined) {
+    if (!Array.isArray(value.patterns)) {
+      issues.push(issue('error', `${path}.patterns`, 'must be an array'));
+    } else {
+      value.patterns.forEach((entry, index) => {
+        if (!isPlainObject(entry)) {
+          issues.push(issue('error', `${path}.patterns[${index}]`, 'must be an object'));
+          return;
+        }
+        if (entry.id !== undefined && !isNonEmptyString(entry.id)) {
+          issues.push(issue('error', `${path}.patterns[${index}].id`, 'must be a non-empty string'));
+        }
+        if (!isNonEmptyString(entry.pattern)) {
+          issues.push(issue('error', `${path}.patterns[${index}].pattern`, 'must be a non-empty string'));
+        }
+      });
+    }
+  }
+}
+
+function validateContextConfig(value, path, issues) {
+  if (!isPlainObject(value)) {
+    issues.push(issue('error', path, 'must be an object'));
+    return;
+  }
+  for (const key of ['maxPreviousOutputBytes', 'maxStepOutputBytes']) {
+    if (value[key] !== undefined) {
+      validatePositiveNumber(value[key], `${path}.${key}`, issues);
+    }
+  }
+}
+
+function validateRetryConfig(value, path, issues) {
+  if (!isPlainObject(value)) {
+    issues.push(issue('error', path, 'must be an object'));
+    return;
+  }
+  for (const key of ['agentRetries', 'validationRetries']) {
+    if (value[key] !== undefined && (!Number.isInteger(value[key]) || value[key] < 0)) {
+      issues.push(issue('error', `${path}.${key}`, 'must be a non-negative integer'));
+    }
+  }
+  if (value.backoffMs !== undefined) {
+    if (!Number.isFinite(Number(value.backoffMs)) || Number(value.backoffMs) < 0) {
+      issues.push(issue('error', `${path}.backoffMs`, 'must be a non-negative number'));
+    }
+  }
+  if (value.fallbackAgents !== undefined) {
+    if (!Array.isArray(value.fallbackAgents)) {
+      issues.push(issue('error', `${path}.fallbackAgents`, 'must be an array'));
+    } else {
+      value.fallbackAgents.forEach((agentConfig, index) => {
+        validateAgentConfig(agentConfig, `${path}.fallbackAgents[${index}]`, issues, { allowString: false });
+      });
+    }
+  }
+}
+
+function validateBudgetConfig(value, path, issues) {
+  if (!isPlainObject(value)) {
+    issues.push(issue('error', path, 'must be an object'));
+    return;
+  }
+  for (const key of ['maxAgentSteps', 'maxProviderCalls', 'maxValidationCommands', 'maxRuntimeMs']) {
+    if (value[key] !== undefined) {
+      validatePositiveNumber(value[key], `${path}.${key}`, issues);
+    }
+  }
+}
+
+function validateTools(value, path, issues) {
+  if (!Array.isArray(value)) {
+    issues.push(issue('error', path, 'must be an array'));
+    return;
+  }
+  value.forEach((tool, index) => {
+    const toolPath = `${path}[${index}]`;
+    if (!isPlainObject(tool)) {
+      issues.push(issue('error', toolPath, 'must be an object'));
+      return;
+    }
+    if (tool.id !== undefined && !isNonEmptyString(tool.id)) {
+      issues.push(issue('error', `${toolPath}.id`, 'must be a non-empty string'));
+    }
+    if (tool.name !== undefined && !isNonEmptyString(tool.name)) {
+      issues.push(issue('error', `${toolPath}.name`, 'must be a non-empty string'));
+    }
+    for (const key of ['setupCommand', 'teardownCommand']) {
+      if (tool[key] !== undefined && !isNonEmptyString(tool[key])) {
+        issues.push(issue('error', `${toolPath}.${key}`, 'must be a non-empty string'));
+      }
+    }
+    for (const key of ['timeoutMs', 'maxLogBytes']) {
+      if (tool[key] !== undefined) {
+        validatePositiveNumber(tool[key], `${toolPath}.${key}`, issues);
+      }
+    }
+  });
+}
+
 export function validateProjectConfig(projectConfig = {}, { harnessConfig = null } = {}) {
   const issues = [];
 
@@ -264,6 +375,26 @@ export function validateProjectConfig(projectConfig = {}, { harnessConfig = null
         }
       }
     }
+  }
+
+  if (projectConfig.redaction !== undefined) {
+    validateRedaction(projectConfig.redaction, 'redaction', issues);
+  }
+
+  if (projectConfig.context !== undefined) {
+    validateContextConfig(projectConfig.context, 'context', issues);
+  }
+
+  if (projectConfig.retry !== undefined) {
+    validateRetryConfig(projectConfig.retry, 'retry', issues);
+  }
+
+  if (projectConfig.budget !== undefined) {
+    validateBudgetConfig(projectConfig.budget, 'budget', issues);
+  }
+
+  if (projectConfig.tools !== undefined) {
+    validateTools(projectConfig.tools, 'tools', issues);
   }
 
   if (projectConfig.supervisor !== undefined) {

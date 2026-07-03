@@ -33,6 +33,8 @@ runs/<runId>/manifest.json
 - `policy`: policy config와 preflight decision
 - `trustBoundary`: local-first 신뢰 경계 요약
 - `validationCommands`: 하네스가 실행한 validation 명령 목록
+- `middleware`: hook event, run state, redaction/context/retry/budget config summary
+- `tools`: tool setup/teardown lifecycle 결과
 - `git`: 실행 전 git snapshot
 - `gitAfter`: 실행 후 git snapshot
 - `steps`: agent, validation, inspection step 결과
@@ -100,6 +102,64 @@ runs/<runId>/manifest.json
   "detailsPath": "runs/<runId>/inspection-after-coder.json"
 }
 ```
+
+### Tool Lifecycle Step
+
+```json
+{
+  "type": "tool",
+  "toolId": "browser",
+  "phase": "setup",
+  "command": "npm run browser:start",
+  "status": "succeeded",
+  "exitCode": 0,
+  "timedOut": false,
+  "stdoutPath": "runs/<runId>/tool-browser-setup.stdout.log",
+  "stderrPath": "runs/<runId>/tool-browser-setup.stderr.log"
+}
+```
+
+Tool lifecycle results are stored in `manifest.tools.lifecycle`.
+
+## Middleware Runtime
+
+```json
+{
+  "middleware": {
+    "state": {
+      "counters": {
+        "agentSteps": 1,
+        "providerCalls": 1,
+        "validationCommands": 1,
+        "hookEvents": 4,
+        "redactions": 0,
+        "contextTruncations": 0,
+        "retries": 0,
+        "fallbacks": 0
+      },
+      "flags": {},
+      "values": {}
+    },
+    "events": [
+      {
+        "type": "hook:run:start",
+        "detail": {
+          "pipeline": "code_fix"
+        },
+        "createdAt": "2026-07-04T00:00:00.000Z"
+      }
+    ],
+    "config": {
+      "redaction": {},
+      "context": {},
+      "budget": {},
+      "retry": {}
+    }
+  }
+}
+```
+
+This object is intended for debugging and downstream evaluation. Hook event names are additive and should be treated as an event stream rather than a closed enum.
 
 ## Hermes Supervisor Decision
 

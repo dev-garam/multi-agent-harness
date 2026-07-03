@@ -46,6 +46,48 @@ const valid = validateProjectConfig({
     days: 7,
     keep: 20
   },
+  redaction: {
+    enabled: true,
+    mode: 'mask',
+    patterns: [
+      {
+        id: 'internal',
+        pattern: 'SECRET_[A-Z]+'
+      }
+    ]
+  },
+  context: {
+    maxPreviousOutputBytes: 1000,
+    maxStepOutputBytes: 500
+  },
+  retry: {
+    agentRetries: 1,
+    validationRetries: 1,
+    backoffMs: 0,
+    fallbackAgents: [
+      {
+        provider: 'mock',
+        command: 'node',
+        args: ['mock.cjs'],
+        outputMode: 'stdout'
+      }
+    ]
+  },
+  budget: {
+    maxAgentSteps: 10,
+    maxProviderCalls: 10,
+    maxValidationCommands: 10,
+    maxRuntimeMs: 600000
+  },
+  tools: [
+    {
+      id: 'browser',
+      setupCommand: 'echo setup',
+      teardownCommand: 'echo teardown',
+      timeoutMs: 1000,
+      maxLogBytes: 1000
+    }
+  ],
   configSuggestions: {
     enabled: true,
     mode: 'ask'
@@ -93,6 +135,35 @@ const invalid = validateProjectConfig({
     enabled: 'yes',
     maxSupervisorTurns: 1.5
   },
+  redaction: {
+    enabled: 'yes',
+    mode: 'block',
+    patterns: [
+      {
+        id: '',
+        pattern: ''
+      }
+    ]
+  },
+  context: {
+    maxPreviousOutputBytes: 0
+  },
+  retry: {
+    agentRetries: -1,
+    validationRetries: 1.5,
+    backoffMs: -1,
+    fallbackAgents: ['codex']
+  },
+  budget: {
+    maxProviderCalls: 0
+  },
+  tools: [
+    {
+      id: '',
+      setupCommand: '',
+      timeoutMs: 0
+    }
+  ],
   configSuggestions: {
     enabled: 'yes',
     mode: 'auto'
@@ -111,6 +182,18 @@ assert.ok(invalid.errors.some((entry) => entry.path === 'runner.image'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'validationCommands[0].command'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'resources.agentTimeoutMs'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'supervisor.enabled'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'redaction.enabled'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'redaction.mode'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'redaction.patterns[0].pattern'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'context.maxPreviousOutputBytes'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'retry.agentRetries'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'retry.validationRetries'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'retry.backoffMs'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'retry.fallbackAgents[0]'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'budget.maxProviderCalls'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'tools[0].id'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'tools[0].setupCommand'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'tools[0].timeoutMs'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'configSuggestions.enabled'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'configSuggestions.mode'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'policy.protectedBranches[1]'));

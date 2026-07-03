@@ -191,66 +191,86 @@ Hermes의 step rerun은 있지만, LangChain 글에서 말하는 model/tool retr
 
 ### Phase A. Middleware Foundation
 
+Status: baseline implemented
+
 목표: 하네스 내부 주요 지점에 hook을 만들고, hook 결과를 manifest에 남긴다.
 
 작업:
 
-1. middleware hook interface 정의
-2. runner에 run/step/validation/Hermes hook 삽입
-3. built-in no-op middleware 추가
-4. middleware 결과 manifest 기록
-5. middleware unit test 추가
+1. Done: `src/middleware.js` hook/state/event runtime 추가
+2. Done: runner에 run/step/validation/Hermes hook 삽입
+3. Done: built-in runtime summary를 `manifest.middleware`에 기록
+4. Done: middleware state counter와 event stream 기록
+5. Done: `test/middleware.test.js` 추가
 
 ### Phase B. Context And Redaction
+
+Status: baseline implemented
 
 목표: 모델과 CLI agent에 들어가고 나오는 context를 하네스가 통제한다.
 
 작업:
 
-1. prompt/input redaction middleware
-2. output redaction middleware
-3. step output summarizer
-4. context budget config
-5. verbose output artifact offloading
+1. Done: prompt/input redaction runtime 추가
+2. Done: agent/validation/tool stdout/stderr redaction 연결
+3. Done: step output context trimming 추가
+4. Done: `context.maxPreviousOutputBytes`, `context.maxStepOutputBytes` schema 추가
+5. Deferred: 별도 요약 모델 기반 summarizer는 추후 확장
 
 ### Phase C. Retry And Fallback
+
+Status: baseline implemented
 
 목표: 일시적 실패를 deterministic policy로 복구한다.
 
 작업:
 
-1. retry config schema
-2. retryable error classifier
-3. provider fallback list
-4. backoff 실행
-5. retry/fallback manifest 기록
+1. Done: `retry` config schema 추가
+2. Done: agent/validation retry count와 backoff 실행
+3. Done: provider fallback list 지원
+4. Done: retry/fallback event를 `manifest.middleware.events`에 기록
+5. Deferred: 오류 유형별 retryable classifier 정교화
 
 ### Phase D. Tool Lifecycle
+
+Status: baseline implemented
 
 목표: provider CLI 외부의 도구를 setup/teardown 가능한 실행 단위로 관리한다.
 
 작업:
 
-1. tool registry schema
-2. setup/teardown lifecycle
-3. tool env allowlist
-4. tool event logging
-5. cleanup failure handling
+1. Done: `tools` config schema 추가
+2. Done: `src/tools.js` setup/teardown lifecycle 추가
+3. Done: selected runtime runner를 통한 tool command 실행
+4. Done: `manifest.tools.lifecycle`에 tool 결과 기록
+5. Deferred: tool별 env allowlist는 Docker runner env allowlist와 별도 통합 필요
 
 ### Phase E. Budget And Eval
+
+Status: baseline implemented
 
 목표: 하네스 비용과 품질을 지속적으로 관리한다.
 
 작업:
 
-1. run budget schema
-2. model/tool/validation call limits
-3. provider usage parser
-4. eval fixture repo
-5. regression score report
+1. Done: `budget` config schema 추가
+2. Done: agent/provider/validation call limit 적용
+3. Done: `harness eval [--json]` 명령 추가
+4. Done: eval report를 `.harness/eval/`에 기록
+5. Deferred: provider별 token/cost usage parser와 fixture repo score는 추후 확장
+
+## 이번 구현으로 생긴 주요 산출물
+
+- `src/middleware.js`: hook event, shared state, redaction, context trimming, retry/budget config를 담당한다.
+- `src/tools.js`: setup/teardown tool lifecycle을 담당한다.
+- `src/eval.js`: 하네스 자체 regression gate를 실행하고 eval report를 남긴다.
+- `manifest.middleware`: hook event stream, counters, runtime config summary를 저장한다.
+- `manifest.tools.lifecycle`: tool setup/teardown 결과를 저장한다.
+- `.harness.json` 신규 필드: `redaction`, `context`, `retry`, `budget`, `tools`.
+- 테스트: `test/middleware.test.js`, `test/config-validation.test.js` 확장.
 
 ## 결론
 
-현재 하네스는 "coding CLI agent를 관찰 가능하고 검증 가능한 파이프라인으로 감싸는 구조"는 꽤 잘 갖췄다. LangChain 글 기준으로 다음 단계의 핵심은 pipeline을 더 늘리는 것이 아니라, pipeline 주변에 조합 가능한 middleware layer를 만드는 것이다.
+현재 하네스는 "coding CLI agent를 관찰 가능하고 검증 가능한 파이프라인으로 감싸는 구조"에서 한 단계 더 나아가, pipeline 주변에 조합 가능한 middleware runtime을 갖기 시작했다.
 
-가장 먼저 해야 할 일은 middleware foundation, context/redaction, retry/fallback이다. 이 셋이 들어오면 지금의 Hermes memory, policy, validation, manifest 구조가 더 자연스럽게 연결된다.
+다음 단계는 baseline을 더 정교하게 만드는 일이다. 특히 retryable error classifier, model 기반 context summarizer, tool별 env allowlist, provider usage parser, fixture repo 기반 eval score가 후속 후보로 남아 있다.

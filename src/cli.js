@@ -8,6 +8,7 @@ import { runWatch } from './watch.js';
 import { runHermesCommand } from './hermes.js';
 import { runPipeline } from './runner.js';
 import { showRun } from './show.js';
+import { runHarnessEval } from './eval.js';
 
 function usage() {
   return [
@@ -18,6 +19,7 @@ function usage() {
     '  harness doctor [--repo <path>] [--agent <provider>]',
     '  harness show [--latest|<runId>] [--json]',
     '  harness hermes <subcommand> [options] [request]',
+    '  harness eval [--json]',
     '  harness watch [--interval <ms>] [--once] [--include-existing]',
     '  harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]',
     '',
@@ -42,6 +44,9 @@ function usage() {
     '  feedback --run <id> --rating <n>  Record run feedback',
     '  promote                           Promote learned memory candidates',
     '  report                            Print Hermes operations report',
+    '',
+    'Eval:',
+    '  eval                              Run harness regression gates and write .harness/eval report',
     '',
     'Shared options:',
     '  --repo <path>                     Target repository, defaults to current directory where supported',
@@ -203,6 +208,13 @@ export async function main(args) {
       options: parsed.options
     });
     console.log(output);
+    return;
+  }
+
+  if (parsed.command === 'eval') {
+    console.log(await runHarnessEval({
+      json: parsed.options.json === true
+    }));
     return;
   }
 

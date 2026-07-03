@@ -19,6 +19,11 @@ The harness validates this file before running agents. Invalid config stops `har
 - `testCommand`: optional shell command string.
 - `validationCommands`: optional array of command strings or command objects.
 - `resources`: optional resource limits.
+- `redaction`: optional prompt/output redaction config.
+- `context`: optional context budget config.
+- `retry`: optional retry and fallback config.
+- `budget`: optional run budget config.
+- `tools`: optional setup/teardown tool lifecycle config.
 - `supervisor`: optional Hermes supervisor config.
 - `cleanup`: optional run cleanup config.
 - `configSuggestions`: optional config suggestion preference.
@@ -105,6 +110,61 @@ Validation commands execute through the selected runtime runner. In local mode t
 ```
 
 All resource values must be positive numbers.
+
+## Middleware Runtime
+
+These fields configure the harness runtime layer around agent, validation, and tool execution.
+
+```json
+{
+  "redaction": {
+    "enabled": true,
+    "mode": "mask",
+    "patterns": [
+      {
+        "id": "internal-token",
+        "pattern": "TOKEN_[A-Z0-9]+"
+      }
+    ]
+  },
+  "context": {
+    "maxPreviousOutputBytes": 262144,
+    "maxStepOutputBytes": 65536
+  },
+  "retry": {
+    "agentRetries": 1,
+    "validationRetries": 1,
+    "backoffMs": 1000,
+    "fallbackAgents": [
+      {
+        "provider": "claude"
+      }
+    ]
+  },
+  "budget": {
+    "maxAgentSteps": 20,
+    "maxProviderCalls": 20,
+    "maxValidationCommands": 30,
+    "maxRuntimeMs": 1800000
+  },
+  "tools": [
+    {
+      "id": "browser",
+      "setupCommand": "npm run browser:start",
+      "teardownCommand": "npm run browser:stop",
+      "timeoutMs": 120000,
+      "maxLogBytes": 524288
+    }
+  ]
+}
+```
+
+- `redaction.enabled` must be boolean. `mode` must be `mask` or `hash`.
+- `context.maxPreviousOutputBytes` and `context.maxStepOutputBytes` must be positive numbers.
+- `retry.agentRetries` and `retry.validationRetries` must be non-negative integers.
+- `retry.fallbackAgents` uses the same agent object shape as `agent`.
+- `budget` values must be positive numbers.
+- `tools` setup and teardown commands run through the selected runtime runner and are recorded in `manifest.tools.lifecycle`.
 
 ## Supervisor
 

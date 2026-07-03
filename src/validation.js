@@ -59,7 +59,7 @@ function appendLimited(current, value, maxBytes) {
   return { text: limited, truncated: true };
 }
 
-export async function runValidationCommand({ repo, runDir, id, command, timeoutMs = DEFAULT_TIMEOUT_MS, maxLogBytes = DEFAULT_MAX_LOG_BYTES, runtime = null }) {
+export async function runValidationCommand({ repo, runDir, id, command, timeoutMs = DEFAULT_TIMEOUT_MS, maxLogBytes = DEFAULT_MAX_LOG_BYTES, runtime = null, redact = null }) {
   const startedAt = new Date();
   const safeId = slug(id);
   const stdoutPath = path.join(runDir, `validation-${safeId}.stdout.log`);
@@ -110,7 +110,9 @@ export async function runValidationCommand({ repo, runDir, id, command, timeoutM
   process.once('SIGTERM', onSigterm);
 
   child.stdout.on('data', (chunk) => {
-    const value = chunk.toString();
+    const value = redact
+      ? redact(chunk.toString(), { surface: 'validation.stdout', id: safeId }).text
+      : chunk.toString();
     lastOutputAt = new Date();
     const limited = appendLimited(stdout, value, maxLogBytes);
     stdout = limited.text;
@@ -119,7 +121,9 @@ export async function runValidationCommand({ repo, runDir, id, command, timeoutM
   });
 
   child.stderr.on('data', (chunk) => {
-    const value = chunk.toString();
+    const value = redact
+      ? redact(chunk.toString(), { surface: 'validation.stderr', id: safeId }).text
+      : chunk.toString();
     lastOutputAt = new Date();
     const limited = appendLimited(stderr, value, maxLogBytes);
     stderr = limited.text;

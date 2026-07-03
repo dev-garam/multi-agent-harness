@@ -17,6 +17,8 @@ import { resourceConfigFromProjectConfig } from './resources.js';
 import { appendManifestStep, saveManifest } from './manifest.js';
 import { formatConfigValidationIssues, validateProjectConfig } from './config-validation.js';
 import { assertRuntimeRunnerAvailable, runtimeRunnerFromOptions } from './runtime-runner.js';
+import { appendRuntimeSummary, createHarnessRuntime } from './middleware.js';
+import { runToolLifecycle, toolConfigsFromProjectConfig } from './tools.js';
 
 const HERMES_STEP_ID = 'hermes';
 const DEFAULT_MAX_SUPERVISOR_TURNS = 3;
@@ -44,6 +46,10 @@ function validationSummary(result) {
     `stdoutPath: ${result.stdoutPath}`,
     `stderrPath: ${result.stderrPath}`
   ].join('\n');
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function supervisorConfigFromProjectConfig(projectConfig = {}) {
@@ -173,7 +179,7 @@ function resolveStepAgent({ defaultAgent, projectConfig, stepId }) {
   });
 }
 
-async function runValidationStage({ repo, runDir, step, attempt, validationCommands, manifest, previousOutputs, resources, runtime }) {
+async function runValidationStage({ repo, runDir, step, attempt, validationCommands, manifest, previousOutputs, resources, runtime, harnessRuntime }) {
   const validationStageId = validationStageIdForAttempt(step, attempt);
   if (validationCommands.length === 0) {
     const skipped = {
@@ -194,17 +200,50 @@ async function runValidationStage({ repo, runDir, step, attempt, validationComma
 
   for (const validation of validationCommands) {
     const validationId = validationIdForAttempt(validation, step, attempt);
-    console.error(`\n== validation:${validationId} ==`);
-    const validationResult = await runValidationCommand({
-      repo,
-      runDir,
-      id: validationId,
-      command: validation.command,
-      timeoutMs: validation.timeoutMs || resources.validationTimeoutMs,
-      maxLogBytes: validation.maxLogBytes || resources.maxLogBytes,
-      runtime
-    });
-    await appendManifestStep(runDir, manifest, validationResult);
+    let validationResult = null;
+    const maxAttempts = harnessRuntime.retry.validationRetries + 1;
+    for (let validationAttempt = 1; validationAttempt <= maxAttempts; validationAttempt += 1) {
+      harnessRuntime.assertBudget('validation');
+      harnessRuntime.hook('validation:before', {
+        id: validationId,
+        attempt: validationAttempt,
+        maxAttempts
+      });
+      console.error(`\n== validation:${validationId}${validationAttempt > 1 ? ` (attempt ${validationAttempt})` : ''} ==`);
+      validationResult = await runValidationCommand({
+        repo,
+        runDir,
+        id: validationAttempt > 1 ? `${validationId}-attempt-${validationAttempt}` : validationId,
+        command: validation.command,
+        timeoutMs: validation.timeoutMs || resources.validationTimeoutMs,
+        maxLogBytes: validation.maxLogBytes || resources.maxLogBytes,
+        runtime,
+        redact: harnessRuntime.redactText
+      });
+      validationResult.retryAttempt = validationAttempt;
+      await appendManifestStep(runDir, manifest, validationResult);
+      harnessRuntime.hook('validation:after', {
+        id: validationResult.id,
+        attempt: validationAttempt,
+        status: validationResult.status,
+        exitCode: validationResult.exitCode
+      });
+
+      if (validationResult.exitCode === 0 || validationAttempt >= maxAttempts) {
+        break;
+      }
+
+      harnessRuntime.state.counters.retries += 1;
+      harnessRuntime.recordEvent('retry:validation', {
+        id: validationResult.id,
+        nextAttempt: validationAttempt + 1,
+        reason: `exit ${validationResult.exitCode}`
+      });
+      if (harnessRuntime.retry.backoffMs > 0) {
+        await sleep(harnessRuntime.retry.backoffMs);
+      }
+    }
+
     nextPreviousOutputs += `\n\n## validation:${validationResult.id}\n${validationSummary(validationResult)}`;
 
     if (validationResult.exitCode !== 0) {
@@ -272,6 +311,8 @@ export async function runPipeline(options, request) {
   const validationCommands = validationCommandsFromProjectConfig(projectConfig);
   const supervisorConfig = supervisorConfigFromProjectConfig(projectConfig);
   const resources = resourceConfigFromProjectConfig(projectConfig);
+  const harnessRuntime = createHarnessRuntime({ projectConfig });
+  const toolConfigs = toolConfigsFromProjectConfig(projectConfig);
   const policy = directRunPolicyFromProjectConfig(projectConfig);
   const basePolicyDecision = evaluatePolicy({
     request,
@@ -365,6 +406,16 @@ export async function runPipeline(options, request) {
     },
     trustBoundary: trustBoundarySummary(projectConfig),
     validationCommands,
+    tools: {
+      configured: toolConfigs.map((tool) => ({
+        id: tool.id,
+        hasSetup: Boolean(tool.setupCommand),
+        hasTeardown: Boolean(tool.teardownCommand),
+        timeoutMs: tool.timeoutMs,
+        maxLogBytes: tool.maxLogBytes
+      })),
+      lifecycle: []
+    },
     resources,
     supervisor: supervisorConfig,
     git: await gitSnapshot(executionRepo),
@@ -373,8 +424,15 @@ export async function runPipeline(options, request) {
     supervisorDecisions: [],
     pipelineChanges: []
   };
+  appendRuntimeSummary(manifest, harnessRuntime);
   await writeText(path.join(runDir, 'request.txt'), request + '\n');
   await saveManifest(runDir, manifest);
+  harnessRuntime.hook('run:start', {
+    runId,
+    pipeline: selected.pipelineName,
+    workspaceMode,
+    runner: runtime.mode
+  });
 
   console.error(`Harness run: ${runId}`);
   console.error(`Repo: ${repo}`);
@@ -394,6 +452,25 @@ export async function runPipeline(options, request) {
     throw new Error(`Policy blocked this run: ${policyDecision.reason} See ${runDir}`);
   }
 
+  if (!options.dryRun && toolConfigs.length > 0) {
+    const setupResults = await runToolLifecycle({
+      repo: executionRepo,
+      runDir,
+      tools: toolConfigs,
+      phase: 'setup',
+      runtime,
+      redact: harnessRuntime.redactText
+    });
+    manifest.tools.lifecycle.push(...setupResults);
+    harnessRuntime.state.counters.toolSetups += setupResults.filter((result) => result.status !== 'skipped').length;
+    appendRuntimeSummary(manifest, harnessRuntime);
+    await saveManifest(runDir, manifest);
+    const failedSetup = setupResults.find((result) => result.status === 'failed');
+    if (failedSetup) {
+      throw new Error(`Tool setup failed: ${failedSetup.toolId}. See ${runDir}`);
+    }
+  }
+
   let previousOutputs = '';
   let activeValidationFailures = [];
   let validationAfter = new Set(selected.pipeline.validationAfter || []);
@@ -406,6 +483,112 @@ export async function runPipeline(options, request) {
   let shouldStopAfterReporter = false;
   let escalatedToSafeFix = selected.pipelineName === 'safe_fix';
   let stepIndex = 0;
+
+  async function saveRuntimeManifest() {
+    appendRuntimeSummary(manifest, harnessRuntime);
+    await saveManifest(runDir, manifest);
+  }
+
+  let toolsTornDown = false;
+  async function teardownTools() {
+    if (toolsTornDown || options.dryRun || toolConfigs.length === 0) {
+      return [];
+    }
+    toolsTornDown = true;
+    const teardownResults = await runToolLifecycle({
+      repo: executionRepo,
+      runDir,
+      tools: toolConfigs,
+      phase: 'teardown',
+      runtime,
+      redact: harnessRuntime.redactText
+    });
+    manifest.tools.lifecycle.push(...teardownResults);
+    harnessRuntime.state.counters.toolTeardowns += teardownResults.filter((result) => result.status !== 'skipped').length;
+    return teardownResults;
+  }
+
+  async function runAgentWithRetry({ step, baseStep, prompt, promptPath, stepAgent, stepAgentVersion }) {
+    const fallbackAgents = harnessRuntime.retry.fallbackAgents.map((agentConfig) => resolveAgentConfig({
+      options: {},
+      projectConfig: {
+        agent: agentConfig
+      }
+    }));
+    const candidates = [stepAgent, ...fallbackAgents];
+    let lastResult = null;
+
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+      const candidate = candidates[candidateIndex];
+      const candidateVersion = candidateIndex === 0
+        ? stepAgentVersion
+        : await cachedAgentVersion(candidate);
+      const maxAttempts = harnessRuntime.retry.agentRetries + 1;
+
+      if (candidateIndex > 0) {
+        harnessRuntime.state.counters.fallbacks += 1;
+        harnessRuntime.recordEvent('fallback:agent', {
+          stepId: step.id,
+          from: candidates[candidateIndex - 1].name,
+          to: candidate.name
+        });
+      }
+
+      for (let retryAttempt = 1; retryAttempt <= maxAttempts; retryAttempt += 1) {
+        harnessRuntime.assertBudget('agent');
+        harnessRuntime.hook('step:before', {
+          stepId: step.id,
+          baseStepId: baseStep.id,
+          agent: candidate.name,
+          attempt: retryAttempt,
+          fallbackIndex: candidateIndex
+        });
+        const result = await runAgentStep({
+          repo: executionRepo,
+          runDir,
+          step,
+          prompt,
+          promptPath,
+          agent: candidate,
+          resources,
+          runtime,
+          redact: harnessRuntime.redactText
+        });
+        result.agentVersion = candidateVersion;
+        result.retryAttempt = retryAttempt;
+        result.fallbackIndex = candidateIndex;
+        await appendManifestStep(runDir, manifest, result);
+        harnessRuntime.hook('step:after', {
+          stepId: step.id,
+          status: result.status,
+          exitCode: result.exitCode,
+          agent: candidate.name,
+          attempt: retryAttempt,
+          fallbackIndex: candidateIndex
+        });
+        lastResult = result;
+
+        if (result.exitCode === 0) {
+          return result;
+        }
+
+        if (retryAttempt < maxAttempts) {
+          harnessRuntime.state.counters.retries += 1;
+          harnessRuntime.recordEvent('retry:agent', {
+            stepId: step.id,
+            agent: candidate.name,
+            nextAttempt: retryAttempt + 1,
+            reason: `exit ${result.exitCode}`
+          });
+          if (harnessRuntime.retry.backoffMs > 0) {
+            await sleep(harnessRuntime.retry.backoffMs);
+          }
+        }
+      }
+    }
+
+    return lastResult;
+  }
 
   while (stepIndex < selected.pipeline.steps.length) {
     const baseStep = selected.pipeline.steps[stepIndex];
@@ -421,7 +604,7 @@ export async function runPipeline(options, request) {
     const stepAgent = resolveStepAgent({ defaultAgent: agent, projectConfig, stepId: baseStep.id });
     const stepAgentVersion = await cachedAgentVersion(stepAgent);
 
-    const prompt = await renderPrompt(step, {
+    const rawPrompt = await renderPrompt(step, {
       request,
       repo: executionRepo,
       previousOutputs,
@@ -429,10 +612,18 @@ export async function runPipeline(options, request) {
       validationCommands,
       supervisorInstructions
     });
+    const prompt = harnessRuntime.redactText(rawPrompt, {
+      surface: 'prompt',
+      stepId: step.id
+    }).text;
     const promptPath = path.join(runDir, `${step.id}.prompt.md`);
     await writeText(promptPath, prompt);
 
     if (options.dryRun) {
+      harnessRuntime.hook('step:dry-run', {
+        stepId: step.id,
+        agent: stepAgent.name
+      });
       console.error(`[dry-run] ${step.id}`);
       await appendManifestStep(runDir, manifest, {
         type: 'agent',
@@ -467,22 +658,24 @@ export async function runPipeline(options, request) {
     }
 
     console.error(`\n== ${step.id} ==`);
-    const result = await runAgentStep({
-      repo: executionRepo,
-      runDir,
+    const result = await runAgentWithRetry({
       step,
+      baseStep,
       prompt,
       promptPath,
-      agent: stepAgent,
-      resources,
-      runtime
+      stepAgent,
+      stepAgentVersion
     });
-    result.agentVersion = stepAgentVersion;
-    await appendManifestStep(runDir, manifest, result);
 
     if (existsSync(result.finalPath)) {
-      const output = await readText(result.finalPath);
-      previousOutputs += `\n\n## ${step.id}\n${output}`;
+      const output = harnessRuntime.redactText(await readText(result.finalPath), {
+        surface: 'agent.final',
+        stepId: step.id
+      }).text;
+      previousOutputs = harnessRuntime.trimPreviousOutputs(
+        `${previousOutputs}\n\n## ${step.id}\n${harnessRuntime.trimStepOutput(output, { stepId: step.id })}`,
+        { stepId: step.id }
+      );
     }
 
     if (result.exitCode !== 0) {
@@ -492,7 +685,8 @@ export async function runPipeline(options, request) {
         workspace: manifest.workspace,
         runDir
       });
-      await saveManifest(runDir, manifest);
+      await teardownTools();
+      await saveRuntimeManifest();
       throw new Error(`Step failed: ${step.id} (exit ${result.exitCode}). See ${runDir}`);
     }
 
@@ -506,7 +700,8 @@ export async function runPipeline(options, request) {
         manifest,
         previousOutputs,
         resources,
-        runtime
+        runtime,
+        harnessRuntime
       });
       previousOutputs = validationStage.previousOutputs;
       activeValidationFailures = validationStage.failures;
@@ -518,11 +713,19 @@ export async function runPipeline(options, request) {
         manifest,
         previousOutputs
       });
+      previousOutputs = harnessRuntime.trimPreviousOutputs(previousOutputs, {
+        stepId: baseStep.id,
+        stage: 'inspection'
+      });
     }
 
     if (baseStep.id === HERMES_STEP_ID && existsSync(result.finalPath)) {
       supervisorTurns += 1;
       const output = await readText(result.finalPath);
+      harnessRuntime.hook('hermes:before-decision', {
+        stepId: step.id,
+        sourcePath: result.finalPath
+      });
       const decision = parseSupervisorDecision(output);
       const decisionRecord = {
         ...decision,
@@ -532,7 +735,12 @@ export async function runPipeline(options, request) {
         createdAt: new Date().toISOString()
       };
       manifest.supervisorDecisions.push(decisionRecord);
-      await saveManifest(runDir, manifest);
+      harnessRuntime.hook('hermes:after-decision', {
+        nextAction: decision.nextAction,
+        status: decision.status,
+        turn: supervisorTurns
+      });
+      await saveRuntimeManifest();
 
       console.error(`Hermes decision: ${decision.nextAction} (${decision.status})`);
 
@@ -557,7 +765,8 @@ export async function runPipeline(options, request) {
             manifest,
             previousOutputs,
             resources,
-            runtime
+            runtime,
+            harnessRuntime
           });
           previousOutputs = validationStage.previousOutputs;
           activeValidationFailures = validationStage.failures;
@@ -590,7 +799,7 @@ export async function runPipeline(options, request) {
             turn: supervisorTurns,
             createdAt: new Date().toISOString()
           });
-          await saveManifest(runDir, manifest);
+          await saveRuntimeManifest();
           stepIndex = 0;
           continue;
         }
@@ -641,7 +850,7 @@ export async function runPipeline(options, request) {
         sourcePath: result.finalPath,
         createdAt: new Date().toISOString()
       };
-      await saveManifest(runDir, manifest);
+      await saveRuntimeManifest();
     }
 
     stepIndex += 1;
@@ -654,8 +863,12 @@ export async function runPipeline(options, request) {
     workspace: manifest.workspace,
     runDir
   });
+  const teardownResults = await teardownTools();
   if (supervisorTerminalStatus === 'failed' || shouldStopAfterReporter || activeValidationFailures.length > 0) {
     manifest.status = 'failed';
+  } else if (teardownResults.some((result) => result.status === 'failed')) {
+    manifest.status = 'failed';
+    manifest.failureReason = 'tool teardown failed';
   } else if (supervisorTerminalStatus === 'incomplete') {
     manifest.status = 'incomplete';
   } else {
@@ -666,7 +879,11 @@ export async function runPipeline(options, request) {
     currentRunId: runId,
     dryRun: options.dryRun
   });
-  await saveManifest(runDir, manifest);
+  harnessRuntime.hook('run:finish', {
+    status: manifest.status,
+    completedPipeline: manifest.completedPipeline
+  });
+  await saveRuntimeManifest();
   console.error(`\nDone. Final report: ${path.join(runDir, `${selected.pipeline.steps.at(-1).id}.md`)}`);
 
   if (shouldStopAfterReporter) {

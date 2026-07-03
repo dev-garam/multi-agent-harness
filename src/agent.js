@@ -178,7 +178,7 @@ function appendLimited(current, value, maxBytes) {
   return { text: limited, truncated: true };
 }
 
-export async function runAgentStep({ repo, runDir, step, prompt, promptPath, agent, resources = {}, runtime = null }) {
+export async function runAgentStep({ repo, runDir, step, prompt, promptPath, agent, resources = {}, runtime = null, redact = null }) {
   const startedAt = new Date();
   const eventsPath = path.join(runDir, `${step.id}.${agent.name}.stdout.log`);
   const stderrPath = path.join(runDir, `${step.id}.${agent.name}.stderr.log`);
@@ -243,7 +243,9 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
     process.once('SIGTERM', onSigterm);
 
     child.stdout.on('data', (chunk) => {
-      const value = chunk.toString();
+      const value = redact
+        ? redact(chunk.toString(), { surface: 'agent.stdout', stepId: step.id, agent: agent.name }).text
+        : chunk.toString();
       lastOutputAt = new Date();
       const limited = appendLimited(stdout, value, maxLogBytes);
       stdout = limited.text;
@@ -252,7 +254,9 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
     });
 
     child.stderr.on('data', (chunk) => {
-      const value = chunk.toString();
+      const value = redact
+        ? redact(chunk.toString(), { surface: 'agent.stderr', stepId: step.id, agent: agent.name }).text
+        : chunk.toString();
       lastOutputAt = new Date();
       const limited = appendLimited(stderr, value, maxLogBytes);
       stderr = limited.text;
