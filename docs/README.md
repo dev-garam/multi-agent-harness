@@ -18,7 +18,7 @@
 
    대상 프로젝트의 `.harness.json`을 어떤 기준으로 채우고 수정할지 설명하는 사용자 가이드입니다.
 
-4. [Agent Harness Gap Review](./wiki/agent-harness-gap-review.md)
+4. [Agent Harness Gap Review](./agent-harness-gap-review.md)
 
    LangChain custom agent harness 관점으로 현재 구조와 앞으로 개발할 항목을 비교한 위키 문서입니다.
 
@@ -32,7 +32,7 @@
 - [Artifact Schema](./artifact-schema.md)
 - [Project Config Guide](./project-config-guide.md)
 - [Project Config Schema](./config-schema.md)
-- [Agent Harness Gap Review](./wiki/agent-harness-gap-review.md)
+- [Agent Harness Gap Review](./agent-harness-gap-review.md)
 - [Showcase Demo](../demos/showcase/README.md)
 - [Hermes Harness Architecture Diagram](./diagrams/hermes-harness-architecture.puml)
 
@@ -42,8 +42,8 @@
 docs/
   README.md
   hermes-autonomy-roadmap.md
+  agent-harness-gap-review.md
   diagrams/
-  wiki/
   research/
   decisions/
   milestones/
