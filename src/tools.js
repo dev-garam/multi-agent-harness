@@ -36,9 +36,20 @@ export function toolConfigsFromProjectConfig(projectConfig = {}) {
         setupCommand: tool.setupCommand || '',
         teardownCommand: tool.teardownCommand || '',
         timeoutMs: tool.timeoutMs || DEFAULT_TOOL_TIMEOUT_MS,
-        maxLogBytes: tool.maxLogBytes || DEFAULT_MAX_LOG_BYTES
+        maxLogBytes: tool.maxLogBytes || DEFAULT_MAX_LOG_BYTES,
+        envAllowlist: Array.isArray(tool.envAllowlist) ? tool.envAllowlist : []
       }))
     : [];
+}
+
+function envAllowlistForTool(runtime, tool) {
+  if (!tool.envAllowlist || tool.envAllowlist.length === 0) {
+    return null;
+  }
+  if (runtime?.mode === 'docker' && Array.isArray(runtime.envAllowlist) && runtime.envAllowlist.length > 0) {
+    return runtime.envAllowlist.filter((key) => tool.envAllowlist.includes(key));
+  }
+  return tool.envAllowlist;
 }
 
 async function runToolCommand({ repo, runDir, tool, phase, command, runtime = null, redact = null }) {
@@ -50,7 +61,8 @@ async function runToolCommand({ repo, runDir, tool, phase, command, runtime = nu
     runtime,
     command,
     cwd: repo,
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    envAllowlist: envAllowlistForTool(runtime, tool)
   });
 
   let stdout = '';
@@ -114,6 +126,7 @@ async function runToolCommand({ repo, runDir, tool, phase, command, runtime = nu
     timedOut,
     timeoutMs: tool.timeoutMs,
     maxLogBytes: tool.maxLogBytes,
+    envAllowlist: tool.envAllowlist,
     stdoutTruncated,
     stderrTruncated,
     startedAt: startedAt.toISOString(),

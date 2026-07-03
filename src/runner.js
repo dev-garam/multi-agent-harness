@@ -221,6 +221,9 @@ async function runValidationStage({ repo, runDir, step, attempt, validationComma
         redact: harnessRuntime.redactText
       });
       validationResult.retryAttempt = validationAttempt;
+      const retryDecision = harnessRuntime.shouldRetryResult(validationResult, 'validation');
+      validationResult.retryable = retryDecision.retryable;
+      validationResult.retryReason = retryDecision.reason;
       await appendManifestStep(runDir, manifest, validationResult);
       harnessRuntime.hook('validation:after', {
         id: validationResult.id,
@@ -229,7 +232,7 @@ async function runValidationStage({ repo, runDir, step, attempt, validationComma
         exitCode: validationResult.exitCode
       });
 
-      if (validationResult.exitCode === 0 || validationAttempt >= maxAttempts) {
+      if (validationResult.exitCode === 0 || validationAttempt >= maxAttempts || !retryDecision.retryable) {
         break;
       }
 
@@ -237,7 +240,7 @@ async function runValidationStage({ repo, runDir, step, attempt, validationComma
       harnessRuntime.recordEvent('retry:validation', {
         id: validationResult.id,
         nextAttempt: validationAttempt + 1,
-        reason: `exit ${validationResult.exitCode}`
+        reason: retryDecision.reason
       });
       if (harnessRuntime.retry.backoffMs > 0) {
         await sleep(harnessRuntime.retry.backoffMs);
@@ -415,7 +418,8 @@ export async function runPipeline(options, request) {
         hasSetup: Boolean(tool.setupCommand),
         hasTeardown: Boolean(tool.teardownCommand),
         timeoutMs: tool.timeoutMs,
-        maxLogBytes: tool.maxLogBytes
+        maxLogBytes: tool.maxLogBytes,
+        envAllowlist: tool.envAllowlist
       })),
       lifecycle: []
     },
@@ -560,6 +564,9 @@ export async function runPipeline(options, request) {
         result.agentVersion = candidateVersion;
         result.retryAttempt = retryAttempt;
         result.fallbackIndex = candidateIndex;
+        const retryDecision = harnessRuntime.shouldRetryResult(result, 'agent');
+        result.retryable = retryDecision.retryable;
+        result.retryReason = retryDecision.reason;
         await appendManifestStep(runDir, manifest, result);
         harnessRuntime.hook('step:after', {
           stepId: step.id,
@@ -575,18 +582,22 @@ export async function runPipeline(options, request) {
           return result;
         }
 
-        if (retryAttempt < maxAttempts) {
+        if (retryAttempt < maxAttempts && retryDecision.retryable) {
           harnessRuntime.state.counters.retries += 1;
           harnessRuntime.recordEvent('retry:agent', {
             stepId: step.id,
             agent: candidate.name,
             nextAttempt: retryAttempt + 1,
-            reason: `exit ${result.exitCode}`
+            reason: retryDecision.reason
           });
           if (harnessRuntime.retry.backoffMs > 0) {
             await sleep(harnessRuntime.retry.backoffMs);
           }
         }
+      }
+
+      if (lastResult && lastResult.exitCode !== 0 && !lastResult.retryable) {
+        return lastResult;
       }
     }
 

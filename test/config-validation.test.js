@@ -62,12 +62,20 @@ const valid = validateProjectConfig({
   },
   context: {
     maxPreviousOutputBytes: 1000,
-    maxStepOutputBytes: 500
+    maxStepOutputBytes: 500,
+    summarizer: {
+      enabled: true,
+      mode: 'deterministic',
+      headBytes: 100,
+      tailBytes: 200
+    }
   },
   retry: {
     agentRetries: 1,
     validationRetries: 1,
     backoffMs: 0,
+    retryOnExitCodes: [124],
+    retryOnStderrPatterns: ['rate limit'],
     fallbackAgents: [
       {
         provider: 'mock',
@@ -89,7 +97,8 @@ const valid = validateProjectConfig({
       setupCommand: 'echo setup',
       teardownCommand: 'echo teardown',
       timeoutMs: 1000,
-      maxLogBytes: 1000
+      maxLogBytes: 1000,
+      envAllowlist: ['HARNESS_TOKEN']
     }
   ],
   configSuggestions: {
@@ -153,12 +162,20 @@ const invalid = validateProjectConfig({
     ]
   },
   context: {
-    maxPreviousOutputBytes: 0
+    maxPreviousOutputBytes: 0,
+    summarizer: {
+      enabled: 'yes',
+      mode: 'agent',
+      headBytes: 0,
+      provider: ''
+    }
   },
   retry: {
     agentRetries: -1,
     validationRetries: 1.5,
     backoffMs: -1,
+    retryOnExitCodes: [-1],
+    retryOnStderrPatterns: [''],
     fallbackAgents: [
       {
         provider: 'missing-provider'
@@ -172,7 +189,8 @@ const invalid = validateProjectConfig({
     {
       id: '',
       setupCommand: 1,
-      timeoutMs: 0
+      timeoutMs: 0,
+      envAllowlist: ['HARNESS_TOKEN', 1]
     }
   ],
   configSuggestions: {
@@ -193,15 +211,22 @@ assert.ok(invalid.errors.some((entry) => entry.path === 'runner.image'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'validationCommands[0].command'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'resources.agentTimeoutMs'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'context.maxPreviousOutputBytes'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'context.summarizer.enabled'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'context.summarizer.mode'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'context.summarizer.headBytes'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'context.summarizer.provider'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'redaction.enabled'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'redaction.mode'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'retry.agentRetries'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'retry.validationRetries'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'retry.retryOnExitCodes[0]'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'retry.retryOnStderrPatterns[0]'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'retry.fallbackAgents[0]'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'budget.maxAgentSteps'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'tools[0].id'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'tools[0].setupCommand'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'tools[0].timeoutMs'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'tools[0].envAllowlist[1]'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'supervisor.enabled'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'configSuggestions.enabled'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'configSuggestions.mode'));

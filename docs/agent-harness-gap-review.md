@@ -205,7 +205,7 @@ Status: baseline implemented
 
 ### Phase B. Context And Redaction
 
-Status: baseline implemented
+Status: implemented
 
 목표: 모델과 CLI agent에 들어가고 나오는 context를 하네스가 통제한다.
 
@@ -215,11 +215,13 @@ Status: baseline implemented
 2. Done: agent/validation/tool stdout/stderr redaction 연결
 3. Done: step output context trimming 추가
 4. Done: `context.maxPreviousOutputBytes`, `context.maxStepOutputBytes` schema 추가
-5. Deferred: 별도 요약 모델 기반 summarizer는 추후 확장
+5. Done: `context.summarizer` 기반 deterministic head/tail compaction 추가
+
+메모: 실제 model summarizer 호출은 비용과 provider 부작용이 있으므로 기본 실행 경로에는 넣지 않았다. `mode: "model"`은 설정 의도를 manifest에 남길 수 있게 열어두되, 현재 구현은 deterministic compaction을 안전 기본값으로 사용한다.
 
 ### Phase C. Retry And Fallback
 
-Status: baseline implemented
+Status: implemented
 
 목표: 일시적 실패를 deterministic policy로 복구한다.
 
@@ -229,11 +231,11 @@ Status: baseline implemented
 2. Done: agent/validation retry count와 backoff 실행
 3. Done: provider fallback list 지원
 4. Done: retry/fallback event를 `manifest.middleware.events`에 기록
-5. Deferred: 오류 유형별 retryable classifier 정교화
+5. Done: `retryOnExitCodes`, `retryOnStderrPatterns` 기반 retryable classifier 추가
 
 ### Phase D. Tool Lifecycle
 
-Status: baseline implemented
+Status: implemented
 
 목표: provider CLI 외부의 도구를 setup/teardown 가능한 실행 단위로 관리한다.
 
@@ -243,11 +245,11 @@ Status: baseline implemented
 2. Done: `src/tools.js` setup/teardown lifecycle 추가
 3. Done: selected runtime runner를 통한 tool command 실행
 4. Done: `manifest.tools.lifecycle`에 tool 결과 기록
-5. Deferred: tool별 env allowlist는 Docker runner env allowlist와 별도 통합 필요
+5. Done: tool별 `envAllowlist` 추가. Docker runner에서는 runner-level allowlist와 교집합으로 제한
 
 ### Phase E. Budget And Eval
 
-Status: baseline implemented
+Status: implemented
 
 목표: 하네스 비용과 품질을 지속적으로 관리한다.
 
@@ -257,20 +259,22 @@ Status: baseline implemented
 2. Done: agent/provider/validation call limit 적용
 3. Done: `harness eval [--json]` 명령 추가
 4. Done: eval report를 `.harness/eval/`에 기록
-5. Deferred: provider별 token/cost usage parser와 fixture repo score는 추후 확장
+5. Done: provider token/cost usage parser 추가. 파싱 불가 시 `unknown`으로 기록
+6. Done: fixture repo 기반 eval score test 추가
 
 ## 이번 구현으로 생긴 주요 산출물
 
 - `src/middleware.js`: hook event, shared state, redaction, context trimming, retry/budget config를 담당한다.
 - `src/tools.js`: setup/teardown tool lifecycle을 담당한다.
 - `src/eval.js`: 하네스 자체 regression gate를 실행하고 eval report를 남긴다.
+- `src/usage.js`: provider stdout/stderr에서 token/cost usage를 best-effort로 파싱한다.
 - `manifest.middleware`: hook event stream, counters, runtime config summary를 저장한다.
 - `manifest.tools.lifecycle`: tool setup/teardown 결과를 저장한다.
-- `.harness.json` 신규 필드: `redaction`, `context`, `retry`, `budget`, `tools`.
-- 테스트: `test/middleware.test.js`, `test/config-validation.test.js` 확장.
+- `.harness.json` 신규 필드: `redaction`, `context`, `context.summarizer`, `retry`, `budget`, `tools`, `tools[].envAllowlist`.
+- 테스트: `test/middleware.test.js`, `test/config-validation.test.js`, `test/runtime-runner.test.js`, `test/eval-command.test.js`, `test/usage.test.js` 확장.
 
 ## 결론
 
-현재 하네스는 "coding CLI agent를 관찰 가능하고 검증 가능한 파이프라인으로 감싸는 구조"에서 한 단계 더 나아가, pipeline 주변에 조합 가능한 middleware runtime을 갖기 시작했다.
+현재 하네스는 "coding CLI agent를 관찰 가능하고 검증 가능한 파이프라인으로 감싸는 구조"에서 한 단계 더 나아가, pipeline 주변에 조합 가능한 middleware runtime을 갖는다.
 
-다음 단계는 baseline을 더 정교하게 만드는 일이다. 특히 retryable error classifier, model 기반 context summarizer, tool별 env allowlist, provider usage parser, fixture repo 기반 eval score가 후속 후보로 남아 있다.
+남은 확장 후보는 실제 provider를 호출하는 model summarizer, prompt cache artifact, 더 정교한 provider별 usage adapter, 다중 fixture eval set이다. 이 항목들은 현재 기본 실행 계약을 깨지 않고 독립 phase로 추가할 수 있다.

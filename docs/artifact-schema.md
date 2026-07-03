@@ -161,6 +161,12 @@ Tool lifecycle results are stored in `manifest.tools.lifecycle`.
 
 This object is intended for debugging and downstream evaluation. Hook event names are additive and should be treated as an event stream rather than a closed enum.
 
+Agent step entries may include:
+
+- `usage`: best-effort provider token/cost usage. If the provider log format is not recognized, `usage.status` is `unknown`.
+- `retryable` and `retryReason`: classifier output used by retry/fallback middleware.
+- `stderrTail`: short stderr tail used for retry classification. Full logs remain in `stderrPath`.
+
 ## Hermes Supervisor Decision
 
 Hermes supervisor output의 마지막 fenced JSON block은 아래 schema를 따라야 합니다.

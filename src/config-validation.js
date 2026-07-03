@@ -223,6 +223,26 @@ function validateContextConfig(value, path, issues) {
       validatePositiveNumber(value[key], `${path}.${key}`, issues);
     }
   }
+  if (value.summarizer !== undefined) {
+    if (!isPlainObject(value.summarizer)) {
+      issues.push(issue('error', `${path}.summarizer`, 'must be an object'));
+    } else {
+      if (value.summarizer.enabled !== undefined) {
+        validateBoolean(value.summarizer.enabled, `${path}.summarizer.enabled`, issues);
+      }
+      if (value.summarizer.mode !== undefined && !['deterministic', 'model'].includes(value.summarizer.mode)) {
+        issues.push(issue('error', `${path}.summarizer.mode`, 'must be one of: deterministic, model'));
+      }
+      for (const key of ['headBytes', 'tailBytes']) {
+        if (value.summarizer[key] !== undefined) {
+          validatePositiveNumber(value.summarizer[key], `${path}.summarizer.${key}`, issues);
+        }
+      }
+      if (value.summarizer.provider !== undefined && !isNonEmptyString(value.summarizer.provider)) {
+        issues.push(issue('error', `${path}.summarizer.provider`, 'must be a non-empty string'));
+      }
+    }
+  }
 }
 
 function validateRetryConfig(value, path, issues) {
@@ -248,6 +268,20 @@ function validateRetryConfig(value, path, issues) {
         validateAgentConfig(agentConfig, `${path}.fallbackAgents[${index}]`, issues, { allowString: false });
       });
     }
+  }
+  if (value.retryOnExitCodes !== undefined) {
+    if (!Array.isArray(value.retryOnExitCodes)) {
+      issues.push(issue('error', `${path}.retryOnExitCodes`, 'must be an array'));
+    } else {
+      value.retryOnExitCodes.forEach((entry, index) => {
+        if (!Number.isInteger(entry) || entry < 0) {
+          issues.push(issue('error', `${path}.retryOnExitCodes[${index}]`, 'must be a non-negative integer'));
+        }
+      });
+    }
+  }
+  if (value.retryOnStderrPatterns !== undefined) {
+    validateStringArray(value.retryOnStderrPatterns, `${path}.retryOnStderrPatterns`, issues);
   }
 }
 
@@ -289,6 +323,9 @@ function validateTools(value, path, issues) {
       if (tool[key] !== undefined) {
         validatePositiveNumber(tool[key], `${toolPath}.${key}`, issues);
       }
+    }
+    if (tool.envAllowlist !== undefined) {
+      validateStringArray(tool.envAllowlist, `${toolPath}.envAllowlist`, issues);
     }
   });
 }

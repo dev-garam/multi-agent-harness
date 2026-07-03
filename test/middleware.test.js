@@ -8,8 +8,13 @@ const runtime = createHarnessRuntime({
       mode: 'hash'
     },
     context: {
-      maxPreviousOutputBytes: 20,
-      maxStepOutputBytes: 12
+      maxPreviousOutputBytes: 90,
+      maxStepOutputBytes: 12,
+      summarizer: {
+        enabled: true,
+        headBytes: 4,
+        tailBytes: 4
+      }
     },
     budget: {
       maxAgentSteps: 1,
@@ -30,11 +35,23 @@ assert.equal(redacted.redacted, true);
 assert.match(redacted.text, /\[REDACTED:/);
 assert.equal(runtime.state.counters.redactions, 1);
 
-const trimmed = runtime.trimPreviousOutputs('012345678901234567890123456789', {
+const trimmed = runtime.trimPreviousOutputs('012345678901234567890123456789'.repeat(10), {
   surface: 'test'
 });
-assert.match(trimmed, /context truncated by harness/);
+assert.match(trimmed, /context summarized by harness/);
 assert.equal(runtime.state.counters.contextTruncations, 1);
+
+const retryable = runtime.shouldRetryResult({
+  exitCode: 1,
+  stderrTail: 'provider rate limit exceeded'
+});
+assert.equal(retryable.retryable, true);
+
+const notRetryable = runtime.shouldRetryResult({
+  exitCode: 1,
+  stderrTail: 'unit tests failed'
+});
+assert.equal(notRetryable.retryable, false);
 
 runtime.assertBudget('agent');
 assert.throws(() => runtime.assertBudget('agent'), /maxAgentSteps/);

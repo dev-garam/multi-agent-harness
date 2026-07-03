@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { writeText } from './fs-utils.js';
 import { spawnRuntimeCommand } from './runtime-runner.js';
+import { parseProviderUsage } from './usage.js';
 
 const defaultProviders = {
   codex: {
@@ -178,6 +179,11 @@ function appendLimited(current, value, maxBytes) {
   return { text: limited, truncated: true };
 }
 
+function tailText(value, maxBytes = 4096) {
+  const buffer = Buffer.from(String(value || ''));
+  return buffer.subarray(Math.max(0, buffer.length - maxBytes)).toString();
+}
+
 export async function runAgentStep({ repo, runDir, step, prompt, promptPath, agent, resources = {}, runtime = null, redact = null }) {
   const startedAt = new Date();
   const eventsPath = path.join(runDir, `${step.id}.${agent.name}.stdout.log`);
@@ -307,6 +313,8 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
     maxLogBytes,
     stdoutTruncated,
     stderrTruncated,
+    stderrTail: tailText(stderr),
+    usage: parseProviderUsage(`${stdout}\n${stderr}`),
     lastOutputAt: lastOutputAt ? lastOutputAt.toISOString() : null,
     sandbox: step.sandbox || 'read-only',
     approval: step.approval || 'never',

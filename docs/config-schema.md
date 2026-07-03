@@ -129,12 +129,20 @@ These fields configure the harness runtime layer around agent, validation, and t
   },
   "context": {
     "maxPreviousOutputBytes": 262144,
-    "maxStepOutputBytes": 65536
+    "maxStepOutputBytes": 65536,
+    "summarizer": {
+      "enabled": true,
+      "mode": "deterministic",
+      "headBytes": 8192,
+      "tailBytes": 24576
+    }
   },
   "retry": {
     "agentRetries": 1,
     "validationRetries": 1,
     "backoffMs": 1000,
+    "retryOnExitCodes": [124],
+    "retryOnStderrPatterns": ["rate limit", "timeout"],
     "fallbackAgents": [
       {
         "provider": "claude"
@@ -153,7 +161,8 @@ These fields configure the harness runtime layer around agent, validation, and t
       "setupCommand": "npm run browser:start",
       "teardownCommand": "npm run browser:stop",
       "timeoutMs": 120000,
-      "maxLogBytes": 524288
+      "maxLogBytes": 524288,
+      "envAllowlist": ["BROWSER_TOKEN"]
     }
   ]
 }
@@ -161,11 +170,15 @@ These fields configure the harness runtime layer around agent, validation, and t
 
 - `redaction.enabled` must be boolean. `mode` must be `mask` or `hash`.
 - `context.maxPreviousOutputBytes` and `context.maxStepOutputBytes` must be positive numbers.
+- `context.summarizer.enabled` enables deterministic head/tail context compaction. `mode` must be `deterministic` or `model`; current runtime safely records `model` config but uses deterministic compaction behavior.
 - `retry.agentRetries` and `retry.validationRetries` must be non-negative integers.
 - `retry.backoffMs` must be a non-negative number.
+- `retry.retryOnExitCodes` must be non-negative integers. Default is `[124]`.
+- `retry.retryOnStderrPatterns` must be non-empty strings. Defaults cover timeout, rate limit, and common transient network/provider failures.
 - `retry.fallbackAgents` uses the same agent object shape as `agent`.
 - `budget` values must be positive numbers.
 - `tools` setup and teardown commands run through the selected runtime runner and are recorded in `manifest.tools.lifecycle`.
+- `tools[].envAllowlist`, when set, further restricts env passed to that tool. In Docker mode it is intersected with runner-level `envAllowlist`.
 
 ## Supervisor
 

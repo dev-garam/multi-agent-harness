@@ -42,4 +42,16 @@ assert.equal(parsed.status, 'passed');
 assert.ok(parsed.checks.some((entry) => entry.id === 'budget-policy' && entry.status === 'pass'));
 assert.ok(existsSync(parsed.reportPath));
 
+const fixtureRepo = path.join(harnessRoot, 'test', 'fixtures', 'eval-ready');
+const fixtureJson = spawnSync('node', [harnessBin, 'eval', '--repo', fixtureRepo, '--json'], {
+  cwd: harnessRoot,
+  encoding: 'utf8'
+});
+assert.equal(fixtureJson.status, 0, fixtureJson.stderr);
+const fixtureParsed = JSON.parse(fixtureJson.stdout);
+assert.equal(fixtureParsed.status, 'passed');
+assert.equal(fixtureParsed.score.failed, 0);
+assert.equal(fixtureParsed.score.warned, 0);
+assert.equal(fixtureParsed.score.score, 1);
+
 console.log('eval command tests passed');

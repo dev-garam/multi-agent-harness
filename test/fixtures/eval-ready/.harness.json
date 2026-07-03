@@ -1,0 +1,38 @@
+{
+  "pipeline": "code_fix",
+  "agent": {
+    "provider": "codex"
+  },
+  "testCommand": "npm test",
+  "validationCommands": [
+    {
+      "id": "lint",
+      "command": "npm run check"
+    }
+  ],
+  "protectedBranches": ["main", "production"],
+  "redaction": {
+    "enabled": true,
+    "mode": "mask"
+  },
+  "context": {
+    "maxPreviousOutputBytes": 262144,
+    "maxStepOutputBytes": 65536,
+    "summarizer": {
+      "enabled": true,
+      "mode": "deterministic"
+    }
+  },
+  "retry": {
+    "agentRetries": 1,
+    "validationRetries": 1,
+    "retryOnExitCodes": [124],
+    "retryOnStderrPatterns": ["rate limit", "timeout"]
+  },
+  "budget": {
+    "maxAgentSteps": 20,
+    "maxProviderCalls": 20,
+    "maxValidationCommands": 30,
+    "maxRuntimeMs": 1800000
+  }
+}

@@ -551,12 +551,18 @@ agent/validation/tool 실행 주변에는 가벼운 middleware runtime이 붙습
   },
   "context": {
     "maxPreviousOutputBytes": 262144,
-    "maxStepOutputBytes": 65536
+    "maxStepOutputBytes": 65536,
+    "summarizer": {
+      "enabled": true,
+      "mode": "deterministic"
+    }
   },
   "retry": {
     "agentRetries": 1,
     "validationRetries": 1,
     "backoffMs": 1000,
+    "retryOnExitCodes": [124],
+    "retryOnStderrPatterns": ["rate limit", "timeout"],
     "fallbackAgents": [
       {
         "provider": "claude"
@@ -573,11 +579,14 @@ agent/validation/tool 실행 주변에는 가벼운 middleware runtime이 붙습
     {
       "id": "browser",
       "setupCommand": "npm run browser:start",
-      "teardownCommand": "npm run browser:stop"
+      "teardownCommand": "npm run browser:stop",
+      "envAllowlist": ["BROWSER_TOKEN"]
     }
   ]
 }
 ```
+
+재시도는 모든 실패에 적용하지 않고 timeout, rate limit, 일시적 provider 오류처럼 retryable로 분류된 실패에만 적용됩니다. provider 로그에서 token/cost usage를 읽을 수 있으면 manifest에 기록하고, 읽을 수 없으면 `unknown`으로 남깁니다.
 
 정확한 필드 형식은 [Project Config Schema](docs/config-schema.md)를 봅니다.
 

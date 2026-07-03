@@ -15,6 +15,21 @@ function uniqueAbsolutePaths(paths) {
   return [...new Set(paths.filter(Boolean).map((entry) => path.resolve(entry)))];
 }
 
+function buildAllowedEnv(keys = []) {
+  if (!Array.isArray(keys) || keys.length === 0) {
+    return process.env;
+  }
+
+  const alwaysKeep = ['PATH', 'HOME', 'SHELL', 'TMPDIR', 'TEMP', 'TMP'];
+  const env = {};
+  for (const key of [...alwaysKeep, ...keys]) {
+    if (process.env[key] !== undefined) {
+      env[key] = process.env[key];
+    }
+  }
+  return env;
+}
+
 function runnerObject(projectConfig = {}) {
   if (projectConfig.runner !== undefined) {
     return projectConfig.runner;
@@ -89,7 +104,7 @@ export function assertRuntimeRunnerAvailable(runtime) {
   }
 }
 
-export function dockerCommandArgs(runtime, { command, args = [], cwd }) {
+export function dockerCommandArgs(runtime, { command, args = [], cwd, envAllowlist = null }) {
   const dockerArgs = ['run', '--rm'];
 
   if (runtime.network && runtime.network !== 'default') {
@@ -100,7 +115,7 @@ export function dockerCommandArgs(runtime, { command, args = [], cwd }) {
     dockerArgs.push('--volume', `${mount}:${mount}`);
   }
 
-  for (const key of runtime.envAllowlist || []) {
+  for (const key of envAllowlist || runtime.envAllowlist || []) {
     if (process.env[key] !== undefined) {
       dockerArgs.push('--env', key);
     }
@@ -114,27 +129,27 @@ export function dockerCommandArgs(runtime, { command, args = [], cwd }) {
   return dockerArgs;
 }
 
-export function spawnRuntimeCommand({ runtime, command, args = [], cwd, stdio = ['ignore', 'pipe', 'pipe'] }) {
+export function spawnRuntimeCommand({ runtime, command, args = [], cwd, stdio = ['ignore', 'pipe', 'pipe'], env = null, envAllowlist = null }) {
   if (!runtime || runtime.mode === 'local') {
     return spawn(command, args, {
       cwd,
-      env: process.env,
+      env: env || buildAllowedEnv(envAllowlist),
       stdio
     });
   }
 
-  return spawn('docker', dockerCommandArgs(runtime, { command, args, cwd }), {
+  return spawn('docker', dockerCommandArgs(runtime, { command, args, cwd, envAllowlist }), {
     cwd,
     env: process.env,
     stdio
   });
 }
 
-export function spawnRuntimeShell({ runtime, command, cwd, stdio = ['ignore', 'pipe', 'pipe'] }) {
+export function spawnRuntimeShell({ runtime, command, cwd, stdio = ['ignore', 'pipe', 'pipe'], env = null, envAllowlist = null }) {
   if (!runtime || runtime.mode === 'local') {
     return spawn(command, {
       cwd,
-      env: process.env,
+      env: env || buildAllowedEnv(envAllowlist),
       shell: true,
       stdio
     });
@@ -145,6 +160,7 @@ export function spawnRuntimeShell({ runtime, command, cwd, stdio = ['ignore', 'p
     command: 'sh',
     args: ['-lc', command],
     cwd,
-    stdio
+    stdio,
+    envAllowlist
   });
 }

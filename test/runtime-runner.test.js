@@ -44,6 +44,18 @@ assert.deepEqual(args.slice(0, 8), [
 ]);
 assert.deepEqual(args.slice(-3), ['node:22', 'node', 'script.js']);
 
+process.env.HARNESS_TOKEN = 'token';
+process.env.OTHER_TOKEN = 'other';
+const restrictedArgs = dockerCommandArgs(docker, {
+  command: 'node',
+  args: ['script.js'],
+  cwd: '/tmp/repo',
+  envAllowlist: ['HARNESS_TOKEN']
+});
+assert.ok(restrictedArgs.includes('--env'));
+assert.ok(restrictedArgs.includes('HARNESS_TOKEN'));
+assert.equal(restrictedArgs.includes('OTHER_TOKEN'), false);
+
 assert.throws(() => runtimeRunnerFromOptions({ runner: 'docker' }, {}, {
   repo: '/tmp/repo',
   runDir: '/tmp/run'

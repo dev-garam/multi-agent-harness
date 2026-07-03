@@ -59,6 +59,11 @@ function appendLimited(current, value, maxBytes) {
   return { text: limited, truncated: true };
 }
 
+function tailText(value, maxBytes = 4096) {
+  const buffer = Buffer.from(String(value || ''));
+  return buffer.subarray(Math.max(0, buffer.length - maxBytes)).toString();
+}
+
 export async function runValidationCommand({ repo, runDir, id, command, timeoutMs = DEFAULT_TIMEOUT_MS, maxLogBytes = DEFAULT_MAX_LOG_BYTES, runtime = null, redact = null }) {
   const startedAt = new Date();
   const safeId = slug(id);
@@ -161,6 +166,7 @@ export async function runValidationCommand({ repo, runDir, id, command, timeoutM
     maxLogBytes,
     stdoutTruncated,
     stderrTruncated,
+    stderrTail: tailText(stderr),
     lastOutputAt: lastOutputAt ? lastOutputAt.toISOString() : null,
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
