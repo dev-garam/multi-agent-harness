@@ -30,7 +30,7 @@ runs/<runId>/manifest.json
 - `completedPipeline`: 최종 pipeline
 - `dryRun`: dry-run 여부
 - `workspace`: workspace mode와 patch/worktree 정보
-- `policy`: policy config와 preflight decision
+- `policy`: policy config, request preflight decision, protected branch decision
 - `trustBoundary`: local-first 신뢰 경계 요약
 - `validationCommands`: 하네스가 실행한 validation 명령 목록
 - `middleware`: hook event, run state, redaction/context/retry/budget config summary

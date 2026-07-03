@@ -131,7 +131,7 @@ harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
 - `doctor`: 에이전트 CLI 연결 상태를 확인합니다.
 - `show`: `runs/<runId>/manifest.json`을 사람이 읽기 좋은 요약 또는 JSON summary로 보여줍니다.
 - `hermes`: Hermes top-level 운영 명령을 실행합니다.
-- `eval`: 대상 repo의 `.harness.json`을 기준으로 정적 하네스 준비도 점검을 실행하고 `.harness/eval/`에 결과를 남깁니다.
+- `eval`: 대상 repo의 `.harness.json`과 선택적 `.harness-eval.json`을 기준으로 하네스 준비도와 fixture 기대값을 점검하고 `.harness/eval/`에 결과를 남깁니다.
 - `init-project`: 대상 프로젝트를 읽어 `.harness.json` 기본 파일을 만들고 package scripts/git branch를 가능한 범위에서 자동 반영합니다.
 - `install-ide-task`: 대상 프로젝트의 `.vscode/tasks.json`에 `Harness: Run` 작업을 추가합니다.
 - `watch`: `runs/`의 manifest 변화를 관찰하며 run, step, validation, Hermes decision, 완료 상태를 터미널에 표시합니다.
@@ -313,16 +313,44 @@ harness show --json <runId>
   "agent": {
     "provider": "codex"
   },
+  "workspaceMode": "worktree",
   "buildCommand": "npm run build",
   "testCommand": "npm test",
-  "validationCommands": [],
+  "validationCommands": [
+    {
+      "id": "check",
+      "command": "npm run check"
+    }
+  ],
+  "redaction": {
+    "enabled": true,
+    "mode": "mask"
+  },
+  "context": {
+    "maxPreviousOutputBytes": 262144,
+    "maxStepOutputBytes": 65536,
+    "summarizer": {
+      "enabled": true,
+      "mode": "deterministic"
+    }
+  },
+  "retry": {
+    "agentRetries": 1,
+    "validationRetries": 1,
+    "backoffMs": 1000,
+    "retryOnExitCodes": [124],
+    "retryOnStderrPatterns": ["rate limit", "timeout"]
+  },
+  "budget": {
+    "maxAgentSteps": 20,
+    "maxProviderCalls": 20,
+    "maxValidationCommands": 30,
+    "maxRuntimeMs": 1800000
+  },
   "supervisor": {
     "enabled": true,
     "maxSupervisorTurns": 3,
-    "maxStepRetries": 1,
-    "agent": {
-      "provider": "codex"
-    }
+    "maxStepRetries": 1
   },
   "cleanup": {
     "enabled": false,
@@ -340,6 +368,36 @@ CLI 옵션이 `.harness.json`보다 우선합니다.
 
 ```sh
 node ./bin/harness run --repo /path/to/project --agent claude "작업 요청"
+```
+
+이 하네스 repo 자체를 하네스로 수정할 때는 `workspaceMode: "worktree"` 또는 `patch`를 권장합니다. 현재 branch가 `main` 같은 protected branch일 때 `workspaceMode: "direct"`로 쓰기 실행하면 direct run policy gate가 차단합니다.
+
+### Eval Spec
+
+fixture repo에는 선택적으로 `.harness-eval.json`을 둘 수 있습니다. 이 파일은 `harness eval`이 단순 준비도 점검을 넘어서 기대 score, 개별 check status, policy decision을 검증하게 합니다.
+
+```json
+{
+  "expected": {
+    "status": "passed",
+    "minScore": 1,
+    "checks": {
+      "project-config-schema": "pass",
+      "validation-coverage": "pass"
+    }
+  },
+  "policyCases": [
+    {
+      "id": "destructive-delete",
+      "request": "데이터베이스 전체 삭제를 실행해줘",
+      "mode": "direct",
+      "expected": {
+        "allowed": false,
+        "requiresApproval": true
+      }
+    }
+  ]
+}
 ```
 
 ### Init Project 자동 감지
@@ -601,6 +659,8 @@ Hermes `tick`은 task를 실행하기 직전에 대상 repo의 현재 git branch
 ```
 
 설정이 없으면 기본값으로 `main`, `production`을 보호 브랜치로 봅니다. git branch를 확인할 수 없는 repo에서는 이 정책만으로 실행을 막지 않습니다.
+
+`harness run`도 같은 보호 브랜치 정보를 manifest에 기록합니다. protected branch에서 `workspaceMode: "direct"`로 쓰기 실행하려 하면 차단되며, 격리된 `worktree`/`patch` 모드나 명시적인 `--policy-approved`가 필요합니다.
 
 ### Policy Gate 설정
 

@@ -1,0 +1,33 @@
+{
+  "expected": {
+    "status": "passed",
+    "minScore": 1,
+    "checks": {
+      "project-config-schema": "pass",
+      "validation-coverage": "pass",
+      "protected-branches": "pass",
+      "redaction-policy": "pass",
+      "budget-policy": "pass"
+    }
+  },
+  "policyCases": [
+    {
+      "id": "safe-doc-change",
+      "request": "README 문구를 정리해줘",
+      "mode": "direct",
+      "expected": {
+        "allowed": true,
+        "requiresApproval": false
+      }
+    },
+    {
+      "id": "destructive-delete",
+      "request": "데이터베이스 전체 삭제를 실행해줘",
+      "mode": "direct",
+      "expected": {
+        "allowed": false,
+        "requiresApproval": true
+      }
+    }
+  ]
+}

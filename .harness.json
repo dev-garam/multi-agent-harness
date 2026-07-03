@@ -1,0 +1,61 @@
+{
+  "pipeline": "code_fix",
+  "agent": {
+    "provider": "codex"
+  },
+  "workspaceMode": "worktree",
+  "testCommand": "npm test",
+  "validationCommands": [
+    {
+      "id": "check",
+      "command": "npm run check"
+    },
+    {
+      "id": "eval-ready",
+      "command": "node ./bin/harness eval --repo test/fixtures/eval-ready --json"
+    }
+  ],
+  "protectedBranches": ["main", "production"],
+  "redaction": {
+    "enabled": true,
+    "mode": "mask"
+  },
+  "context": {
+    "maxPreviousOutputBytes": 262144,
+    "maxStepOutputBytes": 65536,
+    "summarizer": {
+      "enabled": true,
+      "mode": "deterministic"
+    }
+  },
+  "retry": {
+    "agentRetries": 1,
+    "validationRetries": 1,
+    "backoffMs": 1000,
+    "retryOnExitCodes": [124],
+    "retryOnStderrPatterns": ["rate limit", "timeout", "temporarily unavailable"]
+  },
+  "budget": {
+    "maxAgentSteps": 20,
+    "maxProviderCalls": 20,
+    "maxValidationCommands": 30,
+    "maxRuntimeMs": 1800000
+  },
+  "supervisor": {
+    "enabled": true,
+    "maxSupervisorTurns": 3,
+    "maxStepRetries": 1
+  },
+  "cleanup": {
+    "enabled": false,
+    "days": 7,
+    "keep": 20
+  },
+  "runner": {
+    "mode": "local"
+  },
+  "configSuggestions": {
+    "enabled": true,
+    "mode": "ask"
+  }
+}

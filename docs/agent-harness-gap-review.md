@@ -262,19 +262,60 @@ Status: implemented
 5. Done: provider token/cost usage parser 추가. 파싱 불가 시 `unknown`으로 기록
 6. Done: fixture repo 기반 eval score test 추가
 
+### Phase F. Regression Eval And Policy Gates
+
+Status: implemented
+
+목표: 하네스 자체 변경을 fixture와 deterministic policy 기대값으로 회귀 검증한다.
+
+작업:
+
+1. Done: fixture repo의 `.harness-eval.json` spec 지원
+2. Done: expected status, min score, check status assertion 추가
+3. Done: policy case assertion 추가
+4. Done: protected branch + `workspaceMode: "direct"` 쓰기 실행 차단
+5. Done: policy gate command test 추가
+
+### Phase G. Provider And Runtime Refinement
+
+Status: planned
+
+목표: provider별 capability/usage/runtime 차이를 더 정확히 모델링한다.
+
+작업:
+
+1. Planned: Codex/Claude/custom CLI별 usage adapter 분리
+2. Planned: provider capability contract 문서화
+3. Planned: prompt/context cache artifact
+4. Planned: Docker/local runner 차이 문서화와 테스트 확장
+
+### Phase H. Operator UX And Reporting
+
+Status: planned
+
+목표: 실행 결과를 더 쉽게 판단하고, 설정 제안 UX를 정리한다.
+
+작업:
+
+1. Planned: `harness show`에 retry/usage/redaction/policy 요약 추가
+2. Planned: `doctor`에 eval/config readiness 요약 추가
+3. Planned: `configSuggestions` ask/apply UX 정리
+4. Planned: 공개 repo용 문서 최종 정리
+
 ## 이번 구현으로 생긴 주요 산출물
 
 - `src/middleware.js`: hook event, shared state, redaction, context trimming, retry/budget config를 담당한다.
 - `src/tools.js`: setup/teardown tool lifecycle을 담당한다.
 - `src/eval.js`: 하네스 자체 regression gate를 실행하고 eval report를 남긴다.
 - `src/usage.js`: provider stdout/stderr에서 token/cost usage를 best-effort로 파싱한다.
+- `.harness-eval.json`: fixture별 eval 기대값과 policy case를 선언한다.
 - `manifest.middleware`: hook event stream, counters, runtime config summary를 저장한다.
 - `manifest.tools.lifecycle`: tool setup/teardown 결과를 저장한다.
 - `.harness.json` 신규 필드: `redaction`, `context`, `context.summarizer`, `retry`, `budget`, `tools`, `tools[].envAllowlist`.
-- 테스트: `test/middleware.test.js`, `test/config-validation.test.js`, `test/runtime-runner.test.js`, `test/eval-command.test.js`, `test/usage.test.js` 확장.
+- 테스트: `test/middleware.test.js`, `test/config-validation.test.js`, `test/runtime-runner.test.js`, `test/eval-command.test.js`, `test/usage.test.js`, `test/policy-gate.test.js` 확장.
 
 ## 결론
 
 현재 하네스는 "coding CLI agent를 관찰 가능하고 검증 가능한 파이프라인으로 감싸는 구조"에서 한 단계 더 나아가, pipeline 주변에 조합 가능한 middleware runtime을 갖는다.
 
-남은 확장 후보는 실제 provider를 호출하는 model summarizer, prompt cache artifact, 더 정교한 provider별 usage adapter, 다중 fixture eval set이다. 이 항목들은 현재 기본 실행 계약을 깨지 않고 독립 phase로 추가할 수 있다.
+남은 확장 후보는 Phase G/H로 분리한다. 실제 provider를 호출하는 model summarizer는 비용과 비결정성 때문에 기본 경로가 아니라 선택 기능으로 다루는 편이 맞다.

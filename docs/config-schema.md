@@ -251,3 +251,36 @@ When enabled, the harness may ask before adding helpful project config during fu
 
 - Boolean fields must be boolean.
 - `protectedBranches` and `requireApprovalFor` must be arrays of strings.
+
+## Eval Spec
+
+Fixture repositories may include `.harness-eval.json`. This file is read by `harness eval` and is not part of the runtime `.harness.json` contract.
+
+```json
+{
+  "expected": {
+    "status": "passed",
+    "minScore": 1,
+    "checks": {
+      "project-config-schema": "pass",
+      "validation-coverage": "pass"
+    }
+  },
+  "policyCases": [
+    {
+      "id": "safe-doc-change",
+      "request": "README 문구를 정리해줘",
+      "mode": "direct",
+      "expected": {
+        "allowed": true,
+        "requiresApproval": false
+      }
+    }
+  ]
+}
+```
+
+- `expected.status` checks the final eval status.
+- `expected.minScore` checks the readiness score lower bound.
+- `expected.checks` maps check ids to expected statuses.
+- `policyCases` runs deterministic policy decisions against the fixture config.

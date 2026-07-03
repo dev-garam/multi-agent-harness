@@ -8,7 +8,7 @@ import { renderPrompt } from './prompt.js';
 import { runValidationCommand, validationCommandsFromProjectConfig } from './validation.js';
 import { trustBoundarySummary } from './trust.js';
 import { inspectChanges, inspectionSummary } from './inspection.js';
-import { evaluatePolicy, policyFromProjectConfig } from './policy.js';
+import { evaluatePolicy, evaluateProtectedBranchPolicy, policyFromProjectConfig } from './policy.js';
 import { finalizeWorkspace, prepareWorkspace, workspaceModeFromOptions } from './workspace.js';
 import { parseReporterSummary } from './reporter-summary.js';
 import { appendSupervisorInstructions, parseSupervisorDecision } from './supervisor.js';
@@ -338,6 +338,15 @@ export async function runPipeline(options, request) {
   const runDir = path.join(harnessRoot, 'runs', runId);
   await ensureDir(runDir);
   const workspaceMode = workspaceModeFromOptions(options, projectConfig);
+  const protectedBranchDecision = await evaluateProtectedBranchPolicy({
+    repo,
+    projectConfig,
+    policy
+  });
+  const protectedBranchWriteBlocked = protectedBranchDecision.requiresApproval &&
+    workspaceMode === 'direct' &&
+    !options.dryRun &&
+    !options.policyApproved;
   let workspace;
   try {
     workspace = await prepareWorkspace({
@@ -408,7 +417,12 @@ export async function runPipeline(options, request) {
       mode: 'direct',
       approved: Boolean(options.policyApproved),
       config: policy,
-      decision: policyDecision
+      decision: policyDecision,
+      protectedBranch: {
+        ...protectedBranchDecision,
+        writeBlocked: protectedBranchWriteBlocked,
+        workspaceMode
+      }
     },
     trustBoundary: trustBoundarySummary(projectConfig),
     validationCommands,
@@ -457,6 +471,14 @@ export async function runPipeline(options, request) {
     manifest.failureReason = policyDecision.reason;
     await saveManifest(runDir, manifest);
     throw new Error(`Policy blocked this run: ${policyDecision.reason} See ${runDir}`);
+  }
+
+  if (protectedBranchWriteBlocked) {
+    manifest.finishedAt = new Date().toISOString();
+    manifest.status = 'failed';
+    manifest.failureReason = protectedBranchDecision.reason;
+    await saveManifest(runDir, manifest);
+    throw new Error(`Policy blocked direct writes on protected branch: ${protectedBranchDecision.branch}. Use workspaceMode=worktree/patch or approve explicitly. See ${runDir}`);
   }
 
   if (!options.dryRun && toolConfigs.length > 0) {

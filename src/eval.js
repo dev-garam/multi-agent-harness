@@ -4,6 +4,7 @@ import { loadConfig } from './config.js';
 import { ensureDir, harnessRoot, readText, timestampId, writeText } from './fs-utils.js';
 import { validateProjectConfig } from './config-validation.js';
 import { validationCommandsFromProjectConfig } from './validation.js';
+import { evaluatePolicy, policyFromProjectConfig } from './policy.js';
 
 function check(id, status, message, detail = null) {
   return {
@@ -28,6 +29,109 @@ function scoreChecks(checks) {
   };
 }
 
+async function loadEvalSpec(repo) {
+  const specPath = path.join(repo, '.harness-eval.json');
+  if (!existsSync(specPath)) {
+    return {
+      specPath,
+      spec: null,
+      error: null
+    };
+  }
+
+  try {
+    return {
+      specPath,
+      spec: JSON.parse(await readText(specPath)),
+      error: null
+    };
+  } catch (error) {
+    return {
+      specPath,
+      spec: null,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function addExpectedChecks({ checks, spec, baseScore, baseStatus }) {
+  if (!spec?.expected || typeof spec.expected !== 'object') {
+    return;
+  }
+
+  if (spec.expected.status !== undefined) {
+    checks.push(check(
+      'expected-status',
+      spec.expected.status === baseStatus ? 'pass' : 'fail',
+      spec.expected.status === baseStatus
+        ? `status matched expected ${spec.expected.status}`
+        : `expected status ${spec.expected.status}, got ${baseStatus}`,
+      { expected: spec.expected.status, actual: baseStatus }
+    ));
+  }
+
+  if (spec.expected.minScore !== undefined) {
+    const minScore = Number(spec.expected.minScore);
+    checks.push(check(
+      'expected-min-score',
+      Number.isFinite(minScore) && baseScore.score >= minScore ? 'pass' : 'fail',
+      Number.isFinite(minScore) && baseScore.score >= minScore
+        ? `score ${baseScore.score} >= ${minScore}`
+        : `score ${baseScore.score} < ${minScore}`,
+      { expected: minScore, actual: baseScore.score }
+    ));
+  }
+
+  if (spec.expected.checks && typeof spec.expected.checks === 'object') {
+    for (const [checkId, expectedStatus] of Object.entries(spec.expected.checks)) {
+      const actual = checks.find((entry) => entry.id === checkId);
+      checks.push(check(
+        `expected-check:${checkId}`,
+        actual?.status === expectedStatus ? 'pass' : 'fail',
+        actual?.status === expectedStatus
+          ? `${checkId} matched expected ${expectedStatus}`
+          : `${checkId} expected ${expectedStatus}, got ${actual?.status || 'missing'}`,
+        { expected: expectedStatus, actual: actual?.status || null }
+      ));
+    }
+  }
+}
+
+function addPolicyCaseChecks({ checks, spec, projectConfig }) {
+  if (!Array.isArray(spec?.policyCases)) {
+    return;
+  }
+
+  const policy = policyFromProjectConfig(projectConfig);
+  spec.policyCases.forEach((policyCase, index) => {
+    const id = policyCase.id || `policy-${index + 1}`;
+    const decision = evaluatePolicy({
+      request: policyCase.request || '',
+      policy,
+      mode: policyCase.mode || 'autonomous'
+    });
+    const expected = policyCase.expected || {};
+    const mismatches = [];
+    for (const key of ['allowed', 'requiresApproval']) {
+      if (expected[key] !== undefined && decision[key] !== expected[key]) {
+        mismatches.push(`${key}: expected ${expected[key]}, got ${decision[key]}`);
+      }
+    }
+
+    checks.push(check(
+      `policy-case:${id}`,
+      mismatches.length === 0 ? 'pass' : 'fail',
+      mismatches.length === 0 ? 'policy decision matched expected result' : mismatches.join('; '),
+      {
+        request: policyCase.request || '',
+        mode: policyCase.mode || 'autonomous',
+        expected,
+        decision
+      }
+    ));
+  });
+}
+
 export async function runHarnessEval({ repo = process.cwd(), json = false } = {}) {
   const resolvedRepo = path.resolve(repo);
   const configPath = path.join(resolvedRepo, '.harness.json');
@@ -37,6 +141,7 @@ export async function runHarnessEval({ repo = process.cwd(), json = false } = {}
   const harnessConfig = await loadConfig();
   let projectConfig = {};
   const checks = [];
+  const evalSpec = await loadEvalSpec(resolvedRepo);
 
   if (!existsSync(configPath)) {
     checks.push(check('project-config-exists', 'fail', '.harness.json not found', { configPath }));
@@ -86,6 +191,21 @@ export async function runHarnessEval({ repo = process.cwd(), json = false } = {}
     projectConfig.budget ? 'pass' : 'warn',
     projectConfig.budget ? 'budget policy configured' : 'no budget policy configured'
   ));
+
+  if (evalSpec.error) {
+    checks.push(check('eval-spec-parse', 'fail', 'failed to parse .harness-eval.json', {
+      specPath: evalSpec.specPath,
+      error: evalSpec.error
+    }));
+  } else if (evalSpec.spec) {
+    checks.push(check('eval-spec-exists', 'pass', '.harness-eval.json found', {
+      specPath: evalSpec.specPath
+    }));
+    const baseScore = scoreChecks(checks);
+    const baseStatus = checks.some((entry) => entry.status === 'fail') ? 'failed' : 'passed';
+    addExpectedChecks({ checks, spec: evalSpec.spec, baseScore, baseStatus });
+    addPolicyCaseChecks({ checks, spec: evalSpec.spec, projectConfig });
+  }
 
   const result = {
     evalId,
