@@ -18,6 +18,8 @@ rectangle "IDE / 터미널 / 스케줄" as input
 
 rectangle "CLI 인터페이스\n(harness)\n\n- run / doctor / show / watch / clean\n- init-project / install-ide-task\n- hermes 운영 명령" as cli
 
+rectangle "프로젝트 온보딩\n(harness init-project)\n\n- .harness.json 생성/refresh\n- 대화형 추천 기본값\n  [Y/n] 기본값\n- agent routing 설치/초기화/제거\n  1 Codex / 2 Claude\n  3 Gemini+Antigravity / 4 Cursor" as onboarding
+
 rectangle "헤르메스 운영자\n(harness hermes)\n\n- 운영 명령\n  status / plan / enqueue / tick\n  approve / reject / feedback\n  promote / report\n- 작업 큐\n  pending / running / done / failed\n- 계획 + 정책\n  메모리 기반 계획\n  위험 작업 차단\n  보호 브랜치 차단\n- 피드백 저장\n- 패턴 승격\n  제안 / patch 생성\n- 리포트 + 알림\n  markdown / webhook / slack / discord" as hermes
 
 rectangle "하네스 실행기\n(harness run)\n\n- config preflight\n  .harness.json schema 검증\n- 파이프라인 선택\n  auto deterministic classifier\n  quick_fix / code_fix / safe_fix / review_only\n- workspace 준비\n  direct / worktree / patch\n- middleware runtime\n  redaction / context / retry / budget\n- provider 계약\n  capability / outputMode / timeout\n- 작업자 단계\n  planner / coder / qa / verifier\n- 헤르메스 감독자\n  파이프라인 내부 판단\n- 최종 보고자\n  reporter.md" as runtime
@@ -28,7 +30,7 @@ rectangle "Provider Adapter\n\n- Codex\n- Claude\n- Antigravity\n- Custom CLI\n\
 
 rectangle "Validation Runner\n\n- buildCommand\n- testCommand\n- validationCommands\n\nselected runtime에서 실행" as validation
 
-rectangle "프로젝트 저장소\n\n- .harness.json\n  pipeline / agents / runner\n  validation / policy / cleanup\n- 현재 git 브랜치\n- 소스 코드" as project
+rectangle "프로젝트 저장소\n\n- .harness.json\n  pipeline / agents / runner\n  validation / policy / cleanup\n- agent routing files\n  AGENTS.md / CLAUDE.md\n  GEMINI.md / .cursor/rules\n- 현재 git 브랜치\n- 소스 코드" as project
 
 database "메모리 저장소\n\n.harness/memory\nruns.jsonl\nrepos.json" as memory
 
@@ -46,6 +48,8 @@ input --> cli
 cli --> runtime
 cli --> hermes
 cli --> observe
+cli --> onboarding
+onboarding --> project
 hermes --> runtime
 runtime --> project
 runtime --> runner
@@ -66,7 +70,7 @@ hermes --> external
 
 note bottom of cli
 CLI는 직접 실행(run)과 운영(hermes),
-관찰(show/watch), 정리(clean)를 라우팅한다.
+관찰(show/watch), 정리(clean), 온보딩(init-project)을 라우팅한다.
 end note
 
 note bottom of hermes
@@ -87,6 +91,7 @@ end note
 legend bottom
   == 핵심 구분 ==
   CLI 인터페이스: 명령 라우팅과 사용자 진입점
+  프로젝트 온보딩: .harness.json과 agent routing 파일 생성/갱신
   헤르메스 운영자: 큐, 메모리, 정책, 승격, 리포트, 알림 관리
   헤르메스 감독자: 파이프라인 내부 판단
   하네스 실행기: config, workspace, pipeline, middleware, manifest 관리

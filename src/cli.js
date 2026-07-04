@@ -15,7 +15,7 @@ function usage() {
     'Usage:',
     '  harness run --repo <path> [options] "<request>"',
     '  harness install-ide-task --repo <path>',
-    '  harness init-project --repo <path> [--refresh] [--interactive] [--apply]',
+    '  harness init-project [--repo <path>] [--refresh] [--interactive] [--apply] [--agent-routing <targets>]',
     '  harness doctor [--repo <path>] [--agent <provider>]',
     '  harness show [--latest|<runId>] [--json]',
     '  harness hermes <subcommand> [options] [request]',
@@ -60,13 +60,17 @@ function usage() {
     '',
     'Init project:',
     '  init-project detects package.json scripts, package manager lockfiles, and git default branches.',
-    '  --interactive asks about reset, recommended defaults, and future config suggestions.',
+    '  interactive terminals ask onboarding questions automatically; --interactive forces that flow.',
     '  --refresh suggests updates for an existing .harness.json without changing it.',
     '  --refresh --interactive asks before applying suggested updates.',
     '  --refresh --apply writes the suggested .harness.json updates.',
+    '  --agent-routing <targets> installs routing rules for numbers like 1,4, names, or all.',
+    '  --reset-agent-routing rewrites an existing harness routing block.',
+    '  --remove-agent-routing removes the harness-owned routing block.',
     '  Review the generated .harness.json before running autonomous workflows.',
     '',
     'Examples:',
+    '  harness init-project',
     '  harness run --repo "$PWD" --pipeline auto --agent codex "Fix failing tests"',
     '  harness run --repo "$PWD" --workspace-mode patch --runner docker --runner-image node:22 "Fix failing tests"',
     '  harness show --latest',
@@ -105,6 +109,14 @@ function parseArgs(args) {
       options.worktrees = true;
     } else if (arg === '--apply') {
       options.apply = true;
+    } else if (arg === '--agent-routing') {
+      options.agentRouting = args[++index] || true;
+    } else if (arg === '--install-agent-routing') {
+      options.agentRouting = options.agentRouting || true;
+    } else if (arg === '--reset-agent-routing') {
+      options.resetAgentRouting = true;
+    } else if (arg === '--remove-agent-routing') {
+      options.removeAgentRouting = true;
     } else if (arg === '--days') {
       options.days = args[++index];
     } else if (arg === '--keep') {
@@ -175,7 +187,10 @@ export async function main(args) {
     const result = await initProjectConfig(repo, {
       refresh: Boolean(parsed.options.refresh),
       interactive: Boolean(parsed.options.interactive),
-      apply: Boolean(parsed.options.apply)
+      apply: Boolean(parsed.options.apply),
+      agentRouting: parsed.options.agentRouting || null,
+      resetAgentRouting: Boolean(parsed.options.resetAgentRouting),
+      removeAgentRouting: Boolean(parsed.options.removeAgentRouting)
     });
     console.log(result.output.join('\n'));
     return;

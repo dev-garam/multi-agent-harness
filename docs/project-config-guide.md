@@ -2,7 +2,7 @@
 
 이 문서는 대상 프로젝트의 `.harness.json`을 사람이 어떻게 채우고 고치는지 설명합니다.
 
-`harness init-project --repo <path>`는 가능한 기본값을 자동으로 채우지만, 프로젝트의 배포 정책, 테스트 전략, 브랜치 운영 방식까지 완전히 알 수는 없습니다. 생성 후에는 이 문서를 기준으로 한 번 검토합니다.
+`harness init-project`는 가능한 기본값을 자동으로 채우지만, 프로젝트의 배포 정책, 테스트 전략, 브랜치 운영 방식까지 완전히 알 수는 없습니다. 생성 후에는 이 문서를 기준으로 한 번 검토합니다. 다른 경로를 대상으로 할 때만 `--repo <path>`를 붙입니다.
 
 필드의 형식만 확인하려면 [Project Config Schema](./config-schema.md)를 봅니다.
 
@@ -49,11 +49,16 @@ Run with --refresh --apply to update .harness.json.
 
 이 방식은 하네스가 설정을 몰래 바꾸지 않게 하기 위한 안전장치입니다.
 
-터미널에서 직접 질문을 받고 싶으면 `--interactive`를 사용합니다. 기존 `.harness.json`이 있을 때 `--interactive`만 붙이면 세 가지를 순서대로 묻습니다.
+일반 터미널에서 `harness init-project`를 실행하면 온보딩 질문이 자동으로 이어집니다. 파이프나 자동화 환경에서도 질문을 강제로 띄우고 싶을 때만 `--interactive`를 사용합니다.
 
 ```sh
-harness init-project --repo . --interactive
+harness init-project
+harness init-project --interactive
 ```
+
+새 프로젝트처럼 `.harness.json`이 없을 때도 파일 생성 후 온보딩 질문이 이어집니다. 이미 `.harness.json`이 있을 때는 아래 네 가지 질문이 순서대로 나옵니다.
+
+대화형 질문의 대문자는 기본값입니다. `[y/N]`에서 Enter는 `n`이고, `[Y/n]`에서 Enter는 `y`입니다. 리셋처럼 되돌리기 어려운 질문은 `N`을 기본값으로 두고, 온보딩 추천값은 `Y`를 기본값으로 둡니다.
 
 첫 번째 질문은 기존 설정을 전체 리셋할지 묻습니다.
 
@@ -66,18 +71,45 @@ Existing .harness.json found. Reset it from scratch? [y/N]
 두 번째 질문은 기본 추천 필드를 추가할지 묻습니다.
 
 ```text
-Add recommended default fields to .harness.json? [y/N]
+Add recommended default fields to .harness.json? [Y/n]
 ```
 
-첫 번째 질문에서 리셋을 선택했다면 새로 재설정되는 파일에 적용되고, 리셋하지 않았다면 기존 파일에 병합됩니다. `y`를 입력하면 누락된 `buildCommand`, `testCommand`, `validationCommands`, `supervisor`, `cleanup`, `runner`, `protectedBranches` 추천값을 병합합니다. `n` 또는 Enter를 입력하면 리셋한 경우 코어 기본값만 남기고, 리셋하지 않은 경우 기존 필드를 그대로 둡니다.
+첫 번째 질문에서 리셋을 선택했다면 새로 재설정되는 파일에 적용되고, 리셋하지 않았다면 기존 파일에 병합됩니다. `y` 또는 Enter를 입력하면 누락된 `buildCommand`, `testCommand`, `validationCommands`, `supervisor`, `cleanup`, `runner`, `protectedBranches` 추천값을 병합합니다. `n`을 입력하면 리셋한 경우 코어 기본값만 남기고, 리셋하지 않은 경우 기존 필드를 그대로 둡니다.
 
 세 번째 질문은 앞으로 작업 중 하네스가 설정 제안을 해도 되는지 저장합니다.
 
 ```text
-Allow the harness to ask before adding helpful config during future work? [y/N]
+Allow the harness to ask before adding helpful config during future work? [Y/n]
 ```
 
-`y`를 입력하면 `configSuggestions.enabled: true`, `mode: "ask"`를 저장합니다. `n` 또는 Enter를 입력하면 `configSuggestions.enabled: false`를 저장합니다.
+`y` 또는 Enter를 입력하면 `configSuggestions.enabled: true`, `mode: "ask"`를 저장합니다. `n`을 입력하면 `configSuggestions.enabled: false`를 저장합니다.
+
+네 번째 질문은 IDE/CLI 에이전트가 명시적인 하네스 요청을 받았을 때 직접 수정하지 않고 하네스를 실행하도록 라우팅 파일을 설치할지 묻습니다.
+
+```text
+Install harness routing rules for coding agents? [Y/n]
+```
+
+`y` 또는 Enter를 입력하면 어떤 coding agent용 라우팅 파일을 설치할지 번호로 선택합니다. `n`을 입력하면 새 라우팅 파일을 만들지 않고, 하네스가 이전에 만든 라우팅 블록이 있으면 제거합니다. 마커 밖의 사용자가 직접 쓴 문서는 유지합니다.
+
+```text
+Select routing targets:
+  1. Codex (AGENTS.md)
+  2. Claude Code (CLAUDE.md)
+  3. Gemini / Antigravity (GEMINI.md + AGENTS.md)
+  4. Cursor (.cursor/rules/harness-routing.mdc)
+Enter numbers separated by comma [1]:
+```
+
+예를 들어 Codex와 Cursor를 같이 쓰면 `1,4`를 입력합니다. Enter만 누르면 기본값으로 `1`번 Codex가 선택됩니다.
+
+비대화형으로 라우팅 파일만 설치, 초기화, 제거할 수도 있습니다.
+
+```sh
+harness init-project --agent-routing 1,4
+harness init-project --agent-routing all --reset-agent-routing
+harness init-project --agent-routing all --remove-agent-routing
+```
 
 이 흐름은 테스트 코드에서도 확인할 수 있습니다. CLI 프로세스에 stdin으로 답을 넣으면 됩니다.
 
@@ -87,10 +119,9 @@ const run = spawnSync('node', [
   'init-project',
   '--repo',
   repo,
-  '--refresh',
   '--interactive'
 ], {
-  input: 'y\n',
+  input: 'n\n\n\n\n',
   encoding: 'utf8'
 });
 ```

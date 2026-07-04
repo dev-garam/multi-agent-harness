@@ -37,10 +37,11 @@
 대상 프로젝트에 기본 설정 파일을 만듭니다.
 
 ```sh
-node ./bin/harness init-project --repo /path/to/project
+cd /path/to/project
+harness init-project
 ```
 
-`init-project`는 빈 템플릿만 쓰지 않고, 대상 repo에서 가능한 값을 자동으로 채웁니다.
+일반 터미널에서 `harness init-project`를 실행하면 `.harness.json`을 만들거나 확인한 뒤 온보딩 질문을 이어갑니다. `init-project`는 빈 템플릿만 쓰지 않고, 현재 프로젝트에서 가능한 값을 자동으로 채웁니다.
 
 - `package.json`의 `scripts.build` -> `buildCommand`
 - `package.json`의 `scripts.test` -> `testCommand`
@@ -50,15 +51,17 @@ node ./bin/harness init-project --repo /path/to/project
 
 감지하지 못한 값은 비워두고, 실행 결과에 `(not detected)`로 표시합니다. 그 경우 프로젝트의 실제 검증 명령을 확인해서 `.harness.json`에 직접 추가합니다.
 
-이미 `.harness.json`이 있는 프로젝트에서 대화형으로 다시 설정하려면 `--interactive`를 사용합니다.
+스크립트나 CI처럼 질문 없이 실행해야 할 때는 옵션으로 명시합니다.
 
 ```sh
-harness init-project --repo /path/to/project --interactive
 harness init-project --repo /path/to/project --refresh
 harness init-project --repo /path/to/project --refresh --apply
+harness init-project --repo /path/to/project --agent-routing 1,4
 ```
 
-`--interactive`는 기존 파일 리셋 여부, 기본 추천 필드 추가 여부, 앞으로 작업 중 설정 제안을 물어봐도 되는지 순서대로 확인합니다.
+`--interactive`는 파이프나 자동화 환경에서도 온보딩 질문을 강제로 띄우고 싶을 때만 사용합니다.
+
+대화형 질문의 대문자는 기본값을 뜻합니다. `[y/N]`에서 Enter는 `n`이고, `[Y/n]`에서 Enter는 `y`입니다. 하네스는 파괴적이거나 되돌리기 어려운 질문은 `N`을 기본값으로 두고, 온보딩 추천값은 `Y`를 기본값으로 둡니다. 라우팅 대상 질문의 `[1]`도 같은 의미로, Enter만 누르면 `1`번 Codex가 선택됩니다.
 
 하네스를 실행합니다.
 
@@ -111,7 +114,7 @@ harness doctor [--repo <path>] [--agent <provider>]
 harness show [--latest|<runId>] [--json]
 harness hermes <subcommand> [options] [request]
 harness eval [--repo <path>] [--json]
-harness init-project --repo <path> [--refresh] [--interactive] [--apply]
+harness init-project [--repo <path>] [--refresh] [--interactive] [--apply] [--agent-routing <targets>]
 harness install-ide-task --repo <path>
 harness watch [--interval <ms>] [--once] [--include-existing]
 harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
@@ -406,7 +409,7 @@ fixture repo에는 선택적으로 `.harness-eval.json`을 둘 수 있습니다.
 
 ### Init Project 자동 감지
 
-`harness init-project --repo <path>`는 사용자가 처음부터 모든 명령을 알 필요가 없도록 프로젝트를 읽어서 기본 설정을 채웁니다.
+`harness init-project`는 사용자가 처음부터 모든 명령을 알 필요가 없도록 현재 프로젝트를 읽어서 기본 설정을 채웁니다. 다른 경로를 대상으로 할 때만 `--repo <path>`를 붙입니다.
 
 이미 `.harness.json`이 있으면 기본적으로 덮어쓰지 않습니다. 대신 아래처럼 refresh 모드로 부족한 설정을 제안받을 수 있습니다.
 
@@ -431,11 +434,19 @@ Run with --refresh --apply to update .harness.json.
 harness init-project --repo . --refresh --apply
 ```
 
-터미널에서 직접 확인 질문을 받고 싶으면 `--interactive`를 사용합니다.
+일반 터미널에서는 `harness init-project`만 실행해도 온보딩 질문이 이어집니다.
 
 ```sh
-harness init-project --repo . --interactive
+harness init-project
 ```
+
+파이프나 자동화 환경에서도 질문을 강제로 띄우고 싶을 때만 `--interactive`를 붙입니다.
+
+```sh
+harness init-project --interactive
+```
+
+새 프로젝트처럼 `.harness.json`이 없을 때도 파일 생성 후 온보딩 질문이 이어집니다. 이미 `.harness.json`이 있을 때는 아래 네 가지 질문이 순서대로 나옵니다.
 
 첫 번째 질문은 기존 설정을 전체 리셋할지 묻습니다.
 
@@ -449,20 +460,86 @@ Existing .harness.json found. Reset it from scratch? [y/N]
 두 번째 질문은 기본 추천 필드를 추가할지 묻습니다. 첫 번째 질문에서 리셋을 선택했다면 새로 재설정되는 파일에 적용되고, 리셋하지 않았다면 기존 파일에 병합됩니다.
 
 ```text
-Add recommended default fields to .harness.json? [y/N]
+Add recommended default fields to .harness.json? [Y/n]
 ```
 
 - `y`: 누락된 `buildCommand`, `testCommand`, `validationCommands`, `supervisor`, `cleanup`, `runner`, `protectedBranches` 추천값을 병합합니다.
-- `n` 또는 Enter: 리셋한 경우 코어 기본값만 남기고, 리셋하지 않은 경우 기존 필드를 그대로 둡니다.
+- `n`: 리셋한 경우 코어 기본값만 남기고, 리셋하지 않은 경우 기존 필드를 그대로 둡니다.
+- Enter: 기본값 `y`로 처리합니다.
 
 세 번째 질문은 앞으로 하네스가 작업 중 필요하다고 판단한 설정을 사용자에게 제안해도 되는지 저장합니다.
 
 ```text
-Allow the harness to ask before adding helpful config during future work? [y/N]
+Allow the harness to ask before adding helpful config during future work? [Y/n]
 ```
 
 - `y`: `.harness.json`에 `configSuggestions.enabled: true`, `mode: "ask"`를 저장합니다.
-- `n` 또는 Enter: `configSuggestions.enabled: false`를 저장합니다.
+- `n`: `configSuggestions.enabled: false`를 저장합니다.
+- Enter: 기본값 `y`로 처리합니다.
+
+네 번째 질문은 IDE/CLI 에이전트가 명시적인 하네스 요청을 받았을 때 직접 수정하지 않고 하네스를 실행하도록 라우팅 파일을 설치할지 묻습니다.
+
+```text
+Install harness routing rules for coding agents? [Y/n]
+```
+
+- `y`: 이어서 어떤 coding agent용 라우팅 파일을 설치할지 번호로 선택합니다.
+- `n`: 새 라우팅 파일을 만들지 않고, 하네스가 이전에 만든 라우팅 블록이 있으면 제거합니다. 마커 밖에 사용자가 직접 쓴 문서는 유지합니다.
+- Enter: 기본값 `y`로 처리합니다.
+
+```text
+Select routing targets:
+  1. Codex (AGENTS.md)
+  2. Claude Code (CLAUDE.md)
+  3. Gemini / Antigravity (GEMINI.md + AGENTS.md)
+  4. Cursor (.cursor/rules/harness-routing.mdc)
+Enter numbers separated by comma [1]:
+```
+
+예를 들어 Codex와 Cursor를 같이 쓰면 `1,4`를 입력합니다. Enter만 누르면 기본값으로 `1`만 적용합니다. Claude, Cursor, Gemini, Antigravity까지 한 번에 설정하려면 비대화형 옵션 `--agent-routing all`을 사용할 수도 있습니다.
+
+### Agent Routing 자동 설치
+
+`.harness.json`은 하네스 실행 설정이고, `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`/Cursor rules는 IDE나 CLI 에이전트가 “언제 하네스를 태울지” 판단하는 라우팅 규칙입니다. `init-project`에서 함께 설치할 수 있습니다.
+
+```sh
+harness init-project --repo . --agent-routing codex
+harness init-project --repo . --agent-routing 1,4
+harness init-project --repo . --agent-routing codex,claude,cursor,gemini,antigravity
+harness init-project --repo . --agent-routing all
+```
+
+대상 파일:
+
+| Target | 파일 |
+| --- | --- |
+| `codex` | `AGENTS.md` |
+| `antigravity` | `AGENTS.md` |
+| `claude` | `CLAUDE.md` |
+| `gemini` | `GEMINI.md` |
+| `cursor` | `.cursor/rules/harness-routing.mdc` |
+
+이미 라우팅 블록이 있으면 기본적으로 그대로 둡니다. 하네스가 관리하는 블록은 아래 마커 사이에만 들어갑니다.
+
+```md
+<!-- harness-routing:start -->
+...
+<!-- harness-routing:end -->
+```
+
+사용자가 수정한 라우팅 블록을 기본값으로 되돌리려면 `--reset-agent-routing`을 붙입니다.
+
+```sh
+harness init-project --repo . --agent-routing all --reset-agent-routing
+```
+
+하네스 라우팅만 빼고 싶으면 `--remove-agent-routing`을 사용합니다. 마커 밖의 기존 문서는 유지합니다.
+
+```sh
+harness init-project --repo . --agent-routing all --remove-agent-routing
+```
+
+`--install-agent-routing`은 `--agent-routing codex`의 짧은 별칭입니다.
 
 Node 계열 프로젝트에서는 lockfile로 package manager를 고릅니다.
 
@@ -908,9 +985,19 @@ harness clean --worktrees --days 7 --keep 5
 
 `.harness.json`은 하네스 실행 설정입니다. 이것만으로 Codex IDE 대화가 자동으로 하네스를 호출하지는 않습니다.
 
-IDE에서 사용자가 "하네스를 활용해서 작업을 수행해"라고 말했을 때 하네스를 태우려면 대상 프로젝트의 `AGENTS.md`에 라우팅 규칙이 있어야 합니다.
+IDE에서 사용자가 "하네스를 활용해서 작업을 수행해"라고 말했을 때 하네스를 태우려면 대상 프로젝트에 agent routing 규칙이 있어야 합니다. 일반적으로는 직접 파일을 쓰지 말고 `harness init-project` 온보딩에서 설치합니다.
 
-권장 섹션:
+```sh
+harness init-project
+```
+
+온보딩의 `Install harness routing rules for coding agents? [Y/n]` 질문에서 Enter 또는 `y`를 누른 뒤, 사용하는 에이전트를 번호로 선택합니다. 예를 들어 Codex와 Cursor를 같이 쓰면 `1,4`를 입력합니다. 자동화 환경에서는 아래처럼 옵션으로 설치할 수 있습니다.
+
+```sh
+harness init-project --agent-routing 1,4
+```
+
+하네스가 생성하는 라우팅 블록은 아래와 같은 내용입니다.
 
 ````md
 ## Harness Routing

@@ -16,7 +16,7 @@
 
 3. [Project Config Guide](./project-config-guide.md)
 
-   대상 프로젝트의 `.harness.json`을 어떤 기준으로 채우고 수정할지 설명하는 사용자 가이드입니다.
+   대상 프로젝트의 `.harness.json`과 agent routing 파일을 어떤 기준으로 생성하고 수정할지 설명하는 사용자 가이드입니다.
 
 4. [Agent Harness Gap Review](./agent-harness-gap-review.md)
 

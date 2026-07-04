@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { readText, runCapture, writeText } from './fs-utils.js';
@@ -32,6 +33,36 @@ const DEFAULT_BUDGET = {
   maxRuntimeMs: 900000
 };
 const SCRIPT_VALIDATIONS = ['lint', 'typecheck', 'check'];
+const ROUTING_MARKER_START = '<!-- harness-routing:start -->';
+const ROUTING_MARKER_END = '<!-- harness-routing:end -->';
+const ROUTING_TARGETS = {
+  codex: {
+    filePath: 'AGENTS.md',
+    label: 'Codex'
+  },
+  antigravity: {
+    filePath: 'AGENTS.md',
+    label: 'Antigravity'
+  },
+  claude: {
+    filePath: 'CLAUDE.md',
+    label: 'Claude Code'
+  },
+  gemini: {
+    filePath: 'GEMINI.md',
+    label: 'Gemini CLI'
+  },
+  cursor: {
+    filePath: '.cursor/rules/harness-routing.mdc',
+    label: 'Cursor'
+  }
+};
+const ROUTING_TARGET_SELECTIONS = {
+  1: ['codex'],
+  2: ['claude'],
+  3: ['gemini', 'antigravity'],
+  4: ['cursor']
+};
 let pipedAnswers = null;
 
 function packageManagerForRepo(repo) {
@@ -201,6 +232,208 @@ function summaryLines({ configPath, created, config, inference }) {
   }
 
   return lines;
+}
+
+function routingInstructions() {
+  return [
+    '## Harness Routing',
+    '',
+    '사용자가 "하네스로", "하네스를 활용해서", "하네스 태워서", "검증까지", "auto로", "quick_fix로", "code_fix로", "safe_fix로", "review_only로"라고 말하면 직접 파일을 수정하지 말고 먼저 하네스를 실행한다.',
+    '',
+    '실행 전 연결 상태를 확인한다.',
+    '',
+    '```sh',
+    'harness doctor --repo . --agent codex',
+    '```',
+    '',
+    '기본 실행은 프로젝트의 `.harness.json` 설정을 따른다.',
+    '',
+    '```sh',
+    'harness run --repo . "<사용자 요청>"',
+    '```',
+    '',
+    '사용자가 특정 파이프라인을 명시한 경우에만 `--pipeline`을 붙인다.',
+    '',
+    '```sh',
+    'harness run --repo . --pipeline safe_fix "<사용자 요청>"',
+    '```',
+    '',
+    '하네스 실행 후에는 `runs/<runId>/manifest.json`과 reporter 산출물을 확인해 요약한다. 가능한 경우 `pipelineSelection`과 `usageSummary`도 함께 보고한다.'
+  ].join('\n');
+}
+
+function cursorRoutingInstructions() {
+  return [
+    '---',
+    'description: Route explicit harness requests through the project harness',
+    'alwaysApply: true',
+    '---',
+    '',
+    routingInstructions()
+  ].join('\n');
+}
+
+function routingBlockForFile(filePath) {
+  const instructions = filePath.endsWith('.mdc')
+    ? cursorRoutingInstructions()
+    : routingInstructions();
+  return `${ROUTING_MARKER_START}\n${instructions}\n${ROUTING_MARKER_END}`;
+}
+
+function normalizeRoutingTargets(value) {
+  if (!value || value === true) {
+    return ['codex'];
+  }
+
+  const entries = String(value)
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  const names = entries.flatMap((entry) => ROUTING_TARGET_SELECTIONS[entry] || [entry]);
+
+  const expanded = names.includes('all')
+    ? Object.keys(ROUTING_TARGETS)
+    : names;
+  const invalid = expanded.filter((name) => !ROUTING_TARGETS[name]);
+  if (invalid.length > 0) {
+    throw new Error(`Unsupported agent routing target: ${invalid.join(', ')}`);
+  }
+
+  const seenFiles = new Set();
+  return expanded.filter((name) => {
+    const target = ROUTING_TARGETS[name];
+    if (seenFiles.has(target.filePath)) {
+      return false;
+    }
+    seenFiles.add(target.filePath);
+    return true;
+  });
+}
+
+async function askRoutingTargets(rl = null) {
+  const answer = await askQuestion([
+    'Select routing targets:',
+    '  1. Codex (AGENTS.md)',
+    '  2. Claude Code (CLAUDE.md)',
+    '  3. Gemini / Antigravity (GEMINI.md + AGENTS.md)',
+    '  4. Cursor (.cursor/rules/harness-routing.mdc)',
+    'Enter numbers separated by comma [1]: '
+  ].join('\n'), rl);
+  const selected = answer.trim() || '1';
+  return normalizeRoutingTargets(selected).join(',');
+}
+
+function replaceRoutingBlock(text, block) {
+  const start = text.indexOf(ROUTING_MARKER_START);
+  const end = text.indexOf(ROUTING_MARKER_END);
+  if (start === -1 || end === -1 || end < start) {
+    return null;
+  }
+
+  const afterEnd = end + ROUTING_MARKER_END.length;
+  return `${text.slice(0, start).trimEnd()}\n\n${block}\n\n${text.slice(afterEnd).trimStart()}`.trimEnd() + '\n';
+}
+
+function removeRoutingBlock(text) {
+  const start = text.indexOf(ROUTING_MARKER_START);
+  const end = text.indexOf(ROUTING_MARKER_END);
+  if (start === -1 || end === -1 || end < start) {
+    return null;
+  }
+
+  const afterEnd = end + ROUTING_MARKER_END.length;
+  return `${text.slice(0, start).trimEnd()}\n\n${text.slice(afterEnd).trimStart()}`.trimEnd() + '\n';
+}
+
+async function updateRoutingFile(repo, targetName, { reset = false, remove = false } = {}) {
+  const target = ROUTING_TARGETS[targetName];
+  const absolutePath = path.join(repo, target.filePath);
+  const exists = existsSync(absolutePath);
+  const previous = exists ? await readText(absolutePath) : '';
+
+  if (remove) {
+    if (!exists) {
+      return {
+        filePath: absolutePath,
+        action: 'missing',
+        message: `Routing file not found: ${target.filePath}`
+      };
+    }
+
+    const removed = removeRoutingBlock(previous);
+    if (removed === null) {
+      return {
+        filePath: absolutePath,
+        action: 'unchanged',
+        message: `No harness routing block found in ${target.filePath}.`
+      };
+    }
+
+    if (target.filePath.endsWith('.mdc') && removed.trim() === '') {
+      await rm(absolutePath, { force: true });
+      return {
+        filePath: absolutePath,
+        action: 'removed',
+        message: `Removed harness routing file: ${target.filePath}`
+      };
+    }
+
+    await writeText(absolutePath, removed);
+    return {
+      filePath: absolutePath,
+      action: 'removed',
+      message: `Removed harness routing block from ${target.filePath}.`
+    };
+  }
+
+  const block = routingBlockForFile(target.filePath);
+  if (!exists) {
+    await mkdir(path.dirname(absolutePath), { recursive: true });
+    const title = target.filePath.endsWith('.mdc') ? '' : `# ${path.basename(target.filePath)}\n\n`;
+    await writeText(absolutePath, `${title}${block}\n`);
+    return {
+      filePath: absolutePath,
+      action: 'created',
+      message: `Created ${target.filePath} harness routing for ${target.label}.`
+    };
+  }
+
+  const replaced = replaceRoutingBlock(previous, block);
+  if (replaced !== null) {
+    if (!reset) {
+      return {
+        filePath: absolutePath,
+        action: 'unchanged',
+        message: `Existing harness routing kept in ${target.filePath}.`
+      };
+    }
+    await writeText(absolutePath, replaced);
+    return {
+      filePath: absolutePath,
+      action: 'reset',
+      message: `Reset harness routing block in ${target.filePath}.`
+    };
+  }
+
+  await writeText(absolutePath, `${previous.trimEnd()}\n\n${block}\n`);
+  return {
+    filePath: absolutePath,
+    action: 'appended',
+    message: `Appended harness routing block to ${target.filePath}.`
+  };
+}
+
+async function applyAgentRouting(repo, { targets, reset = false, remove = false } = {}) {
+  if (!targets) {
+    return [];
+  }
+
+  const normalizedTargets = normalizeRoutingTargets(targets);
+  const results = [];
+  for (const targetName of normalizedTargets) {
+    results.push(await updateRoutingFile(repo, targetName, { reset, remove }));
+  }
+  return results;
 }
 
 function defaultRuntimeConfig({ validation, protectedBranches }) {
@@ -446,9 +679,17 @@ async function askQuestion(question, rl = null) {
   }
 }
 
-async function confirm(question, rl = null) {
+async function confirm(question, rl = null, { defaultValue = false } = {}) {
   const answer = await askQuestion(question, rl);
-  return ['y', 'yes'].includes(answer.trim().toLowerCase());
+  const normalized = answer.trim().toLowerCase();
+  if (!normalized) {
+    return defaultValue;
+  }
+  return ['y', 'yes'].includes(normalized);
+}
+
+function shouldAskInteractively(interactive) {
+  return interactive || (process.stdin.isTTY && process.stdout.isTTY);
 }
 
 async function refreshExistingConfig(repo, configPath, { interactive = false, apply = false, rl = null } = {}) {
@@ -509,12 +750,51 @@ async function writeConfigSuggestionPreference(configPath, enabled) {
   return config.configSuggestions;
 }
 
+async function runInteractiveOnboarding(repo, configPath, output, rl) {
+  const allowFutureSuggestions = await confirm('Allow the harness to ask before adding helpful config during future work? [Y/n] ', rl, { defaultValue: true });
+  const preference = await writeConfigSuggestionPreference(configPath, allowFutureSuggestions);
+  output.push(allowFutureSuggestions
+    ? 'Future config suggestions: enabled (mode: ask).'
+    : 'Future config suggestions: disabled.');
+
+  const installRouting = await confirm('Install harness routing rules for coding agents? [Y/n] ', rl, { defaultValue: true });
+  if (installRouting) {
+    const routingTargets = await askRoutingTargets(rl);
+    const routingResults = await applyAgentRouting(repo, {
+      targets: routingTargets,
+      reset: false,
+      remove: false
+    });
+    output.push('Agent routing files:');
+    for (const routingResult of routingResults) {
+      output.push(`- ${routingResult.message}`);
+    }
+  } else {
+    const routingResults = await applyAgentRouting(repo, {
+      targets: 'all',
+      reset: false,
+      remove: true
+    });
+    const removedResults = routingResults.filter((result) => result.action === 'removed');
+    output.push('Agent routing files: disabled.');
+    if (removedResults.length > 0) {
+      for (const routingResult of removedResults) {
+        output.push(`- ${routingResult.message}`);
+      }
+    } else {
+      output.push('- No harness routing blocks found to remove.');
+    }
+  }
+
+  return preference;
+}
+
 async function runInteractiveExistingConfig(repo, configPath, rl) {
   const output = [
     `Project harness config: ${configPath}`
   ];
   const shouldReset = await confirm('Existing .harness.json found. Reset it from scratch? [y/N] ', rl);
-  const shouldAddRecommended = await confirm('Add recommended default fields to .harness.json? [y/N] ', rl);
+  const shouldAddRecommended = await confirm('Add recommended default fields to .harness.json? [Y/n] ', rl, { defaultValue: true });
 
   if (shouldReset) {
     const detected = await detectProjectDefaults(repo);
@@ -534,11 +814,7 @@ async function runInteractiveExistingConfig(repo, configPath, rl) {
     }
   }
 
-  const allowFutureSuggestions = await confirm('Allow the harness to ask before adding helpful config during future work? [y/N] ', rl);
-  const preference = await writeConfigSuggestionPreference(configPath, allowFutureSuggestions);
-  output.push(allowFutureSuggestions
-    ? 'Future config suggestions: enabled (mode: ask).'
-    : 'Future config suggestions: disabled.');
+  const preference = await runInteractiveOnboarding(repo, configPath, output, rl);
 
   return {
     configPath,
@@ -549,14 +825,44 @@ async function runInteractiveExistingConfig(repo, configPath, rl) {
   };
 }
 
-export async function initProjectConfig(repo, { refresh = false, interactive = false, apply = false } = {}) {
+async function withAgentRouting(result, repo, { agentRouting = null, resetAgentRouting = false, removeAgentRouting = false } = {}) {
+  const targets = removeAgentRouting
+    ? (agentRouting || 'codex')
+    : agentRouting;
+  const routingResults = await applyAgentRouting(repo, {
+    targets,
+    reset: resetAgentRouting,
+    remove: removeAgentRouting
+  });
+
+  if (routingResults.length === 0) {
+    return result;
+  }
+
+  result.agentRouting = routingResults;
+  result.output.push('Agent routing files:');
+  for (const routingResult of routingResults) {
+    result.output.push(`- ${routingResult.message}`);
+  }
+  return result;
+}
+
+export async function initProjectConfig(repo, {
+  refresh = false,
+  interactive = false,
+  apply = false,
+  agentRouting = null,
+  resetAgentRouting = false,
+  removeAgentRouting = false
+} = {}) {
   const configPath = path.join(repo, '.harness.json');
   if (existsSync(configPath)) {
     if (refresh) {
-      return refreshExistingConfig(repo, configPath, { interactive, apply });
+      const result = await refreshExistingConfig(repo, configPath, { interactive, apply });
+      return withAgentRouting(result, repo, { agentRouting, resetAgentRouting, removeAgentRouting });
     }
 
-    const shouldAskForRefresh = interactive || (process.stdin.isTTY && process.stdout.isTTY);
+    const shouldAskForRefresh = shouldAskInteractively(interactive);
     if (shouldAskForRefresh) {
       const rl = process.stdin.isTTY
         ? createInterface({
@@ -565,7 +871,8 @@ export async function initProjectConfig(repo, { refresh = false, interactive = f
           })
         : null;
       try {
-        return await runInteractiveExistingConfig(repo, configPath, rl);
+        const result = await runInteractiveExistingConfig(repo, configPath, rl);
+        return withAgentRouting(result, repo, { agentRouting, resetAgentRouting, removeAgentRouting });
       } finally {
         if (rl) {
           rl.close();
@@ -573,11 +880,11 @@ export async function initProjectConfig(repo, { refresh = false, interactive = f
       }
     }
 
-    return {
+    return withAgentRouting({
       configPath,
       created: false,
       output: summaryLines({ configPath, created: false })
-    };
+    }, repo, { agentRouting, resetAgentRouting, removeAgentRouting });
   }
 
   const detected = await detectProjectDefaults(repo);
@@ -585,7 +892,7 @@ export async function initProjectConfig(repo, { refresh = false, interactive = f
 
   await writeText(configPath, JSON.stringify(config, null, 2) + '\n');
 
-  return {
+  const result = {
     configPath,
     created: true,
     config,
@@ -597,4 +904,29 @@ export async function initProjectConfig(repo, { refresh = false, interactive = f
       inference: detected.inference
     })
   };
+
+  const shouldRunOnboarding = shouldAskInteractively(interactive) &&
+    !agentRouting &&
+    !resetAgentRouting &&
+    !removeAgentRouting;
+  if (shouldRunOnboarding) {
+    const rl = process.stdin.isTTY
+      ? createInterface({
+          input: process.stdin,
+          output: process.stdout
+        })
+      : null;
+    try {
+      const preference = await runInteractiveOnboarding(repo, configPath, result.output, rl);
+      result.interactive = true;
+      result.configSuggestions = preference;
+      return result;
+    } finally {
+      if (rl) {
+        rl.close();
+      }
+    }
+  }
+
+  return withAgentRouting(result, repo, { agentRouting, resetAgentRouting, removeAgentRouting });
 }

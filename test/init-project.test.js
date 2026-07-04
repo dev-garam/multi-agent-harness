@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -59,6 +59,32 @@ assert.equal(config.context.maxPreviousOutputBytes, 65536);
 assert.equal(config.retry.agentRetries, 0);
 assert.equal(config.supervisor.maxSupervisorTurns, 2);
 assert.equal(config.supervisor.maxStepRetries, 0);
+
+const newInteractiveRepo = mkdtempSync(path.join(tmpdir(), 'harness-init-project-new-interactive-'));
+writeFileSync(path.join(newInteractiveRepo, 'package.json'), JSON.stringify({
+  scripts: {
+    test: 'node --test'
+  }
+}, null, 2));
+const newInteractive = spawnSync('node', [harnessBin, 'init-project', '--repo', newInteractiveRepo, '--interactive'], {
+  cwd: harnessRoot,
+  input: 'y\ny\n2,4\n',
+  encoding: 'utf8'
+});
+assert.equal(newInteractive.status, 0, newInteractive.stderr);
+assert.match(newInteractive.stdout, /Created \.harness\.json with detected project defaults/);
+assert.match(newInteractive.stdout, /Allow the harness to ask before adding helpful config during future work\? \[Y\/n\]/);
+assert.match(newInteractive.stdout, /Install harness routing rules for coding agents\? \[Y\/n\]/);
+assert.match(newInteractive.stdout, /Select routing targets:/);
+assert.match(newInteractive.stdout, /Created CLAUDE\.md harness routing for Claude Code/);
+assert.match(newInteractive.stdout, /Created \.cursor\/rules\/harness-routing\.mdc harness routing for Cursor/);
+const newInteractiveConfig = JSON.parse(readFileSync(path.join(newInteractiveRepo, '.harness.json'), 'utf8'));
+assert.deepEqual(newInteractiveConfig.configSuggestions, {
+  enabled: true,
+  mode: 'ask'
+});
+assert.match(readFileSync(path.join(newInteractiveRepo, 'CLAUDE.md'), 'utf8'), /Harness Routing/);
+assert.match(readFileSync(path.join(newInteractiveRepo, '.cursor/rules/harness-routing.mdc'), 'utf8'), /alwaysApply: true/);
 
 const second = spawnSync('node', [harnessBin, 'init-project', '--repo', repo], {
   cwd: harnessRoot,
@@ -227,18 +253,49 @@ writeFileSync(path.join(keepNoSuggestRepo, '.harness.json'), JSON.stringify({
 }, null, 2));
 const keepNoSuggest = spawnSync('node', [harnessBin, 'init-project', '--repo', keepNoSuggestRepo, '--interactive'], {
   cwd: harnessRoot,
-  input: 'n\nn\nn\n',
+  input: 'n\nn\nn\nn\n',
   encoding: 'utf8'
 });
 assert.equal(keepNoSuggest.status, 0, keepNoSuggest.stderr);
 assert.match(keepNoSuggest.stdout, /Existing \.harness\.json found\. Reset it from scratch\? \[y\/N\]/);
-assert.match(keepNoSuggest.stdout, /Add recommended default fields to \.harness\.json\? \[y\/N\]/);
-assert.match(keepNoSuggest.stdout, /Allow the harness to ask before adding helpful config during future work\? \[y\/N\]/);
+assert.match(keepNoSuggest.stdout, /Add recommended default fields to \.harness\.json\? \[Y\/n\]/);
+assert.match(keepNoSuggest.stdout, /Allow the harness to ask before adding helpful config during future work\? \[Y\/n\]/);
+assert.match(keepNoSuggest.stdout, /Install harness routing rules for coding agents\? \[Y\/n\]/);
+assert.match(keepNoSuggest.stdout, /Agent routing files: disabled/);
+assert.match(keepNoSuggest.stdout, /No harness routing blocks found to remove/);
 const keepNoSuggestConfig = JSON.parse(readFileSync(path.join(keepNoSuggestRepo, '.harness.json'), 'utf8'));
 assert.equal(keepNoSuggestConfig.buildCommand, undefined);
 assert.deepEqual(keepNoSuggestConfig.configSuggestions, {
   enabled: false
 });
+
+const removeOnNoRepo = mkdtempSync(path.join(tmpdir(), 'harness-init-project-remove-on-no-'));
+writeFileSync(path.join(removeOnNoRepo, '.harness.json'), JSON.stringify({
+  pipeline: 'auto',
+  agent: {
+    provider: 'codex'
+  }
+}, null, 2));
+writeFileSync(path.join(removeOnNoRepo, 'AGENTS.md'), [
+  '# AGENTS.md',
+  '',
+  'Keep this project note.',
+  '',
+  '<!-- harness-routing:start -->',
+  'old harness routing',
+  '<!-- harness-routing:end -->'
+].join('\n'));
+const removeOnNo = spawnSync('node', [harnessBin, 'init-project', '--repo', removeOnNoRepo, '--interactive'], {
+  cwd: harnessRoot,
+  input: 'n\nn\nn\nn\n',
+  encoding: 'utf8'
+});
+assert.equal(removeOnNo.status, 0, removeOnNo.stderr);
+assert.match(removeOnNo.stdout, /Agent routing files: disabled/);
+assert.match(removeOnNo.stdout, /Removed harness routing block from AGENTS\.md/);
+const removeOnNoAgents = readFileSync(path.join(removeOnNoRepo, 'AGENTS.md'), 'utf8');
+assert.match(removeOnNoAgents, /Keep this project note/);
+assert.doesNotMatch(removeOnNoAgents, /harness-routing:start/);
 
 const keepAddSuggestRepo = mkdtempSync(path.join(tmpdir(), 'harness-init-project-keep-add-suggest-'));
 writeFileSync(path.join(keepAddSuggestRepo, 'package.json'), JSON.stringify({
@@ -254,18 +311,52 @@ writeFileSync(path.join(keepAddSuggestRepo, '.harness.json'), JSON.stringify({
 }, null, 2));
 const keepAddSuggest = spawnSync('node', [harnessBin, 'init-project', '--repo', keepAddSuggestRepo, '--interactive'], {
   cwd: harnessRoot,
-  input: 'n\ny\ny\n',
+  input: 'n\ny\ny\ny\n1,4\n',
   encoding: 'utf8'
 });
 assert.equal(keepAddSuggest.status, 0, keepAddSuggest.stderr);
 assert.match(keepAddSuggest.stdout, /Applied suggested \.harness\.json updates/);
 assert.match(keepAddSuggest.stdout, /Future config suggestions: enabled \(mode: ask\)/);
+assert.match(keepAddSuggest.stdout, /Select routing targets:/);
+assert.match(keepAddSuggest.stdout, /Created AGENTS\.md harness routing for Codex/);
+assert.match(keepAddSuggest.stdout, /Created \.cursor\/rules\/harness-routing\.mdc harness routing for Cursor/);
 const keepAddSuggestConfig = JSON.parse(readFileSync(path.join(keepAddSuggestRepo, '.harness.json'), 'utf8'));
 assert.equal(keepAddSuggestConfig.buildCommand, 'npm run build');
 assert.deepEqual(keepAddSuggestConfig.configSuggestions, {
   enabled: true,
   mode: 'ask'
 });
+assert.match(readFileSync(path.join(keepAddSuggestRepo, 'AGENTS.md'), 'utf8'), /Harness Routing/);
+assert.match(readFileSync(path.join(keepAddSuggestRepo, '.cursor/rules/harness-routing.mdc'), 'utf8'), /alwaysApply: true/);
+
+const enterDefaultsRepo = mkdtempSync(path.join(tmpdir(), 'harness-init-project-enter-defaults-'));
+writeFileSync(path.join(enterDefaultsRepo, 'package.json'), JSON.stringify({
+  scripts: {
+    build: 'vite build'
+  }
+}, null, 2));
+writeFileSync(path.join(enterDefaultsRepo, '.harness.json'), JSON.stringify({
+  pipeline: 'code_fix',
+  agent: {
+    provider: 'codex'
+  }
+}, null, 2));
+const enterDefaults = spawnSync('node', [harnessBin, 'init-project', '--repo', enterDefaultsRepo, '--interactive'], {
+  cwd: harnessRoot,
+  input: 'n\n\n\n\n',
+  encoding: 'utf8'
+});
+assert.equal(enterDefaults.status, 0, enterDefaults.stderr);
+assert.match(enterDefaults.stdout, /Applied suggested \.harness\.json updates/);
+assert.match(enterDefaults.stdout, /Future config suggestions: enabled \(mode: ask\)/);
+assert.match(enterDefaults.stdout, /Created AGENTS\.md harness routing for Codex/);
+const enterDefaultsConfig = JSON.parse(readFileSync(path.join(enterDefaultsRepo, '.harness.json'), 'utf8'));
+assert.equal(enterDefaultsConfig.buildCommand, 'npm run build');
+assert.deepEqual(enterDefaultsConfig.configSuggestions, {
+  enabled: true,
+  mode: 'ask'
+});
+assert.match(readFileSync(path.join(enterDefaultsRepo, 'AGENTS.md'), 'utf8'), /Harness Routing/);
 
 const resetRepo = mkdtempSync(path.join(tmpdir(), 'harness-init-project-reset-'));
 writeFileSync(path.join(resetRepo, 'package.json'), JSON.stringify({
@@ -285,7 +376,7 @@ writeFileSync(path.join(resetRepo, '.harness.json'), JSON.stringify({
 }, null, 2));
 const reset = spawnSync('node', [harnessBin, 'init-project', '--repo', resetRepo, '--interactive'], {
   cwd: harnessRoot,
-  input: 'y\ny\ny\n',
+  input: 'y\ny\ny\nn\n',
   encoding: 'utf8'
 });
 assert.equal(reset.status, 0, reset.stderr);
@@ -327,7 +418,7 @@ writeFileSync(path.join(resetCoreRepo, '.harness.json'), JSON.stringify({
 }, null, 2));
 const resetCore = spawnSync('node', [harnessBin, 'init-project', '--repo', resetCoreRepo, '--interactive'], {
   cwd: harnessRoot,
-  input: 'y\nn\nn\n',
+  input: 'y\nn\nn\nn\n',
   encoding: 'utf8'
 });
 assert.equal(resetCore.status, 0, resetCore.stderr);
@@ -347,5 +438,66 @@ assert.equal(resetCoreConfig.validationCommands, undefined);
 assert.deepEqual(resetCoreConfig.configSuggestions, {
   enabled: false
 });
+
+const routingRepo = mkdtempSync(path.join(tmpdir(), 'harness-init-project-routing-'));
+writeFileSync(path.join(routingRepo, 'package.json'), JSON.stringify({
+  scripts: {
+    test: 'node --test'
+  }
+}, null, 2));
+writeFileSync(path.join(routingRepo, 'AGENTS.md'), [
+  '# AGENTS.md',
+  '',
+  'Existing project guidance.'
+].join('\n'));
+const routingInit = spawnSync('node', [harnessBin, 'init-project', '--repo', routingRepo, '--agent-routing', 'all'], {
+  cwd: harnessRoot,
+  encoding: 'utf8'
+});
+assert.equal(routingInit.status, 0, routingInit.stderr);
+assert.match(routingInit.stdout, /Agent routing files:/);
+assert.match(routingInit.stdout, /Appended harness routing block to AGENTS\.md/);
+assert.match(routingInit.stdout, /Created CLAUDE\.md harness routing/);
+assert.match(routingInit.stdout, /Created GEMINI\.md harness routing/);
+assert.match(routingInit.stdout, /Created \.cursor\/rules\/harness-routing\.mdc harness routing/);
+let agentsText = readFileSync(path.join(routingRepo, 'AGENTS.md'), 'utf8');
+assert.match(agentsText, /Existing project guidance/);
+assert.match(agentsText, /harness-routing:start/);
+assert.match(agentsText, /harness run --repo \. "<사용자 요청>"/);
+assert.match(readFileSync(path.join(routingRepo, 'CLAUDE.md'), 'utf8'), /Harness Routing/);
+assert.match(readFileSync(path.join(routingRepo, 'GEMINI.md'), 'utf8'), /Harness Routing/);
+assert.match(readFileSync(path.join(routingRepo, '.cursor/rules/harness-routing.mdc'), 'utf8'), /alwaysApply: true/);
+
+const routingKeep = spawnSync('node', [harnessBin, 'init-project', '--repo', routingRepo, '--agent-routing', 'codex'], {
+  cwd: harnessRoot,
+  encoding: 'utf8'
+});
+assert.equal(routingKeep.status, 0, routingKeep.stderr);
+assert.match(routingKeep.stdout, /Existing harness routing kept in AGENTS\.md/);
+
+writeFileSync(path.join(routingRepo, 'AGENTS.md'), agentsText.replace('harness run --repo . "<사용자 요청>"', 'CUSTOM ROUTING COMMAND'));
+const routingReset = spawnSync('node', [harnessBin, 'init-project', '--repo', routingRepo, '--agent-routing', 'codex', '--reset-agent-routing'], {
+  cwd: harnessRoot,
+  encoding: 'utf8'
+});
+assert.equal(routingReset.status, 0, routingReset.stderr);
+assert.match(routingReset.stdout, /Reset harness routing block in AGENTS\.md/);
+agentsText = readFileSync(path.join(routingRepo, 'AGENTS.md'), 'utf8');
+assert.doesNotMatch(agentsText, /CUSTOM ROUTING COMMAND/);
+assert.match(agentsText, /Existing project guidance/);
+
+const routingRemove = spawnSync('node', [harnessBin, 'init-project', '--repo', routingRepo, '--agent-routing', 'all', '--remove-agent-routing'], {
+  cwd: harnessRoot,
+  encoding: 'utf8'
+});
+assert.equal(routingRemove.status, 0, routingRemove.stderr);
+assert.match(routingRemove.stdout, /Removed harness routing block from AGENTS\.md/);
+assert.match(routingRemove.stdout, /Removed harness routing block from CLAUDE\.md/);
+assert.match(routingRemove.stdout, /Removed harness routing block from GEMINI\.md/);
+assert.match(routingRemove.stdout, /Removed harness routing file: \.cursor\/rules\/harness-routing\.mdc/);
+agentsText = readFileSync(path.join(routingRepo, 'AGENTS.md'), 'utf8');
+assert.match(agentsText, /Existing project guidance/);
+assert.doesNotMatch(agentsText, /harness-routing:start/);
+assert.equal(existsSync(path.join(routingRepo, '.cursor/rules/harness-routing.mdc')), false);
 
 console.log('init project tests passed');
