@@ -20,7 +20,7 @@ rectangle "CLI 인터페이스\n(harness)\n\n- run / doctor / show / watch / cle
 
 rectangle "헤르메스 운영자\n(harness hermes)\n\n- 운영 명령\n  status / plan / enqueue / tick\n  approve / reject / feedback\n  promote / report\n- 작업 큐\n  pending / running / done / failed\n- 계획 + 정책\n  메모리 기반 계획\n  위험 작업 차단\n  보호 브랜치 차단\n- 피드백 저장\n- 패턴 승격\n  제안 / patch 생성\n- 리포트 + 알림\n  markdown / webhook / slack / discord" as hermes
 
-rectangle "하네스 실행기\n(harness run)\n\n- config preflight\n  .harness.json schema 검증\n- 파이프라인 선택\n  quick_fix / code_fix / safe_fix / review_only\n- workspace 준비\n  direct / worktree / patch\n- provider 계약\n  capability / outputMode / timeout\n- 작업자 단계\n  planner / coder / qa / verifier\n- 헤르메스 감독자\n  파이프라인 내부 판단\n- 최종 보고자\n  reporter.md" as runtime
+rectangle "하네스 실행기\n(harness run)\n\n- config preflight\n  .harness.json schema 검증\n- 파이프라인 선택\n  auto deterministic classifier\n  quick_fix / code_fix / safe_fix / review_only\n- workspace 준비\n  direct / worktree / patch\n- middleware runtime\n  redaction / context / retry / budget\n- provider 계약\n  capability / outputMode / timeout\n- 작업자 단계\n  planner / coder / qa / verifier\n- 헤르메스 감독자\n  파이프라인 내부 판단\n- 최종 보고자\n  reporter.md" as runtime
 
 rectangle "Runtime Runner\n\n- local child process\n- docker run --rm\n- repo/runDir bind mount\n- env allowlist\n- network policy" as runner
 
@@ -33,6 +33,8 @@ rectangle "프로젝트 저장소\n\n- .harness.json\n  pipeline / agents / runn
 database "메모리 저장소\n\n.harness/memory\nruns.jsonl\nrepos.json" as memory
 
 rectangle "실행 산출물\n\nruns/<runId>\nmanifest.json\nrequest / prompt\nstdout / stderr\nreporter.md\nchanges.patch" as artifacts
+
+rectangle "실행 요약\n\npipelineSelection\nusageSummary\nprovider calls / token / cost\nremaining provider budget" as summary
 
 rectangle "관찰 + 정리\n\nharness show\nharness watch\nharness clean\nclean --worktrees" as observe
 
@@ -48,6 +50,7 @@ hermes --> runtime
 runtime --> project
 runtime --> runner
 runtime --> artifacts
+runtime --> summary
 runner --> provider
 runner --> validation
 provider --> project
@@ -55,6 +58,7 @@ validation --> project
 artifacts --> memory
 memory --> hermes
 observe --> artifacts
+observe --> summary
 
 hermes --> project
 hermes --> artifacts
@@ -85,7 +89,7 @@ legend bottom
   CLI 인터페이스: 명령 라우팅과 사용자 진입점
   헤르메스 운영자: 큐, 메모리, 정책, 승격, 리포트, 알림 관리
   헤르메스 감독자: 파이프라인 내부 판단
-  하네스 실행기: config, workspace, pipeline, manifest 관리
+  하네스 실행기: config, workspace, pipeline, middleware, manifest 관리
   Runtime Runner: provider CLI와 검증 명령 실행 위치 선택
 endlegend
 
