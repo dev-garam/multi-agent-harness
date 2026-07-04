@@ -49,6 +49,16 @@ assert.deepEqual(config.validationCommands, [
 ]);
 assert.deepEqual(config.protectedBranches, ['master', 'production']);
 assert.equal(config.runner.mode, 'local');
+assert.equal(config.pipeline, 'auto');
+assert.deepEqual(config.pipelineSelection, {
+  mode: 'deterministic',
+  defaultPipeline: 'quick_fix'
+});
+assert.equal(config.budget.maxProviderCalls, 8);
+assert.equal(config.context.maxPreviousOutputBytes, 65536);
+assert.equal(config.retry.agentRetries, 0);
+assert.equal(config.supervisor.maxSupervisorTurns, 2);
+assert.equal(config.supervisor.maxStepRetries, 0);
 
 const second = spawnSync('node', [harnessBin, 'init-project', '--repo', repo], {
   cwd: harnessRoot,
@@ -281,7 +291,11 @@ const reset = spawnSync('node', [harnessBin, 'init-project', '--repo', resetRepo
 assert.equal(reset.status, 0, reset.stderr);
 assert.match(reset.stdout, /Reset \.harness\.json with newly detected defaults/);
 const resetConfig = JSON.parse(readFileSync(path.join(resetRepo, '.harness.json'), 'utf8'));
-assert.equal(resetConfig.pipeline, 'code_fix');
+assert.equal(resetConfig.pipeline, 'auto');
+assert.deepEqual(resetConfig.pipelineSelection, {
+  mode: 'deterministic',
+  defaultPipeline: 'quick_fix'
+});
 assert.equal(resetConfig.agent.provider, 'codex');
 assert.equal(resetConfig.customField, undefined);
 assert.equal(resetConfig.buildCommand, 'npm run build');
@@ -319,7 +333,12 @@ const resetCore = spawnSync('node', [harnessBin, 'init-project', '--repo', reset
 assert.equal(resetCore.status, 0, resetCore.stderr);
 assert.match(resetCore.stdout, /Reset \.harness\.json with core defaults/);
 const resetCoreConfig = JSON.parse(readFileSync(path.join(resetCoreRepo, '.harness.json'), 'utf8'));
-assert.equal(resetCoreConfig.pipeline, 'code_fix');
+assert.equal(resetCoreConfig.pipeline, 'auto');
+assert.deepEqual(resetCoreConfig.pipelineSelection, {
+  mode: 'deterministic',
+  defaultPipeline: 'quick_fix'
+});
+assert.equal(resetCoreConfig.budget.maxProviderCalls, 8);
 assert.equal(resetCoreConfig.agent.provider, 'codex');
 assert.equal(resetCoreConfig.customField, undefined);
 assert.equal(resetCoreConfig.buildCommand, undefined);

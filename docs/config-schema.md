@@ -6,7 +6,8 @@ The harness validates this file before running agents. Invalid config stops `har
 
 ## Top-level Fields
 
-- `pipeline`: optional string. Must match one of `quick_fix`, `code_fix`, `safe_fix`, `review_only`.
+- `pipeline`: optional string. Must be `auto` or match one of `quick_fix`, `code_fix`, `safe_fix`, `review_only`.
+- `pipelineSelection`: optional deterministic auto-pipeline selection config.
 - `workspaceMode`: optional string. One of `direct`, `worktree`, `patch`.
 - `workspace.mode`: optional alternative to `workspaceMode`.
 - `agent`: optional provider string or agent object.
@@ -29,6 +30,25 @@ The harness validates this file before running agents. Invalid config stops `har
 - `configSuggestions`: optional config suggestion preference.
 - `policy`: optional policy config.
 - `protectedBranches`: optional array of branch names.
+
+## Pipeline Selection
+
+```json
+{
+  "pipeline": "auto",
+  "pipelineSelection": {
+    "mode": "deterministic",
+    "defaultPipeline": "quick_fix",
+    "riskThreshold": 3,
+    "complexityThreshold": 3
+  }
+}
+```
+
+- `pipeline: "auto"` uses deterministic keyword scoring before selecting a concrete pipeline.
+- `pipelineSelection.mode` currently supports `deterministic`.
+- `defaultPipeline` is used when no risk/complexity/review signal crosses a threshold.
+- Explicit `--pipeline <name>` still wins over `.harness.json`.
 
 ## Agent Object
 

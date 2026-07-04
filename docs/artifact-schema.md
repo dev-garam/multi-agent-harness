@@ -27,6 +27,7 @@ runs/<runId>/manifest.json
 - `executionRepo`: 실제 agent와 validation이 실행된 repo
 - `request`: 사용자 요청
 - `pipeline`: 시작 pipeline
+- `pipelineSelection`: auto/explicit pipeline selection decision
 - `completedPipeline`: 최종 pipeline
 - `dryRun`: dry-run 여부
 - `workspace`: workspace mode와 patch/worktree 정보
@@ -36,6 +37,7 @@ runs/<runId>/manifest.json
 - `trustBoundary`: local-first 신뢰 경계 요약
 - `validationCommands`: 하네스가 실행한 validation 명령 목록
 - `middleware`: hook event, run state, redaction/context/retry/budget config summary
+- `usageSummary`: provider call/token/cost usage summary, best effort
 - `tools`: tool setup/teardown lifecycle 결과
 - `git`: 실행 전 git snapshot
 - `gitAfter`: 실행 후 git snapshot

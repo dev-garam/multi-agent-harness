@@ -9,7 +9,7 @@
 ## 현재 지원 기능
 
 - Codex, Claude, Antigravity, 커스텀 CLI를 같은 provider adapter 계약으로 실행합니다.
-- `quick_fix`, `code_fix`, `safe_fix`, `review_only` 파이프라인을 제공합니다.
+- `auto`, `quick_fix`, `code_fix`, `safe_fix`, `review_only` 파이프라인 선택을 제공합니다.
 - `direct`, `worktree`, `patch` workspace mode로 원본 repo 반영 방식을 선택합니다.
 - 기본 `local` runner와 선택형 `docker` runner를 지원합니다.
 - `.harness.json`을 실행 전에 검증하고, `harness doctor`로 provider/runtime/validation 상태를 확인합니다.
@@ -148,7 +148,7 @@ harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
 | `safe_fix` | planner -> coder -> validation -> qa -> verifier -> hermes -> reporter | 위험하거나 중요한 변경 |
 | `review_only` | reviewer -> verifier -> hermes -> reporter | 파일 수정 없는 리뷰 |
 
-기본 파이프라인은 `code_fix`입니다. 변경 영향이 작으면 `quick_fix`, 검증과 주장 확인이 중요하면 `safe_fix`, 읽기 전용 검토는 `review_only`를 사용합니다.
+`pipeline: "auto"`는 deterministic classifier로 요청을 분류합니다. 작은 문서/설정 수정은 `quick_fix`, 복잡한 런타임/정책/구현 작업은 `code_fix`, 인증/결제/삭제/마이그레이션 같은 위험 신호는 `safe_fix`, 리뷰 요청은 `review_only`로 보냅니다. 명시적인 `--pipeline <name>`이 있으면 그 값이 항상 우선합니다.
 
 ### Workspace Mode
 
@@ -309,7 +309,11 @@ harness show --json <runId>
 
 ```json
 {
-  "pipeline": "code_fix",
+  "pipeline": "auto",
+  "pipelineSelection": {
+    "mode": "deterministic",
+    "defaultPipeline": "quick_fix"
+  },
   "agent": {
     "provider": "codex"
   },
@@ -342,15 +346,15 @@ harness show --json <runId>
     "retryOnStderrPatterns": ["rate limit", "timeout"]
   },
   "budget": {
-    "maxAgentSteps": 20,
-    "maxProviderCalls": 20,
-    "maxValidationCommands": 30,
-    "maxRuntimeMs": 1800000
+    "maxAgentSteps": 8,
+    "maxProviderCalls": 8,
+    "maxValidationCommands": 12,
+    "maxRuntimeMs": 900000
   },
   "supervisor": {
     "enabled": true,
-    "maxSupervisorTurns": 3,
-    "maxStepRetries": 1
+    "maxSupervisorTurns": 2,
+    "maxStepRetries": 0
   },
   "cleanup": {
     "enabled": false,
@@ -907,7 +911,7 @@ IDE에서 사용자가 "하네스를 활용해서 작업을 수행해"라고 말
 ````md
 ## Harness Routing
 
-사용자가 "하네스로", "하네스를 활용해서", "하네스 태워서", "quick_fix로", "code_fix로", "safe_fix로", "review_only로", "검증까지"라고 명시하면 직접 파일을 수정하지 말고 먼저 하네스를 실행한다.
+사용자가 "하네스로", "하네스를 활용해서", "하네스 태워서", "auto로", "quick_fix로", "code_fix로", "safe_fix로", "review_only로", "검증까지"라고 명시하면 직접 파일을 수정하지 말고 먼저 하네스를 실행한다.
 
 실행 전 연결 상태를 확인한다.
 
@@ -918,11 +922,12 @@ harness doctor --repo . --agent codex
 그 다음 요청 성격에 맞는 파이프라인으로 실행한다.
 
 ```sh
-harness run --repo . --pipeline code_fix --agent codex "<사용자 요청>"
+harness run --repo . --pipeline auto --agent codex "<사용자 요청>"
 ```
 
 파이프라인 기준:
 
+- `auto`: deterministic classifier로 아래 파이프라인 중 하나를 선택
 - `quick_fix`: 작고 명확한 수정
 - `code_fix`: 일반적인 코드 변경
 - `safe_fix`: 위험하거나 큰 변경

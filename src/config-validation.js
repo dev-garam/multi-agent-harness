@@ -4,6 +4,7 @@ const WORKSPACE_MODES = new Set(['direct', 'worktree', 'patch']);
 const OUTPUT_MODES = new Set(['file', 'stdout']);
 const RUNNER_MODES = new Set(['local', 'docker']);
 const DOCKER_NETWORKS = new Set(['default', 'none', 'host']);
+const PIPELINE_SELECTION_MODES = new Set(['deterministic']);
 
 function issue(severity, path, message) {
   return { severity, path, message };
@@ -330,6 +331,29 @@ function validateTools(value, path, issues) {
   });
 }
 
+function validatePipelineSelection(value, path, issues, { harnessConfig = null } = {}) {
+  if (!isPlainObject(value)) {
+    issues.push(issue('error', path, 'must be an object'));
+    return;
+  }
+  if (value.mode !== undefined && !PIPELINE_SELECTION_MODES.has(value.mode)) {
+    issues.push(issue('error', `${path}.mode`, 'must be one of: deterministic'));
+  }
+  if (value.defaultPipeline !== undefined) {
+    if (!isNonEmptyString(value.defaultPipeline)) {
+      issues.push(issue('error', `${path}.defaultPipeline`, 'must be a non-empty string'));
+    } else if (harnessConfig?.pipelines && !harnessConfig.pipelines[value.defaultPipeline]) {
+      const names = Object.keys(harnessConfig.pipelines).join(', ');
+      issues.push(issue('error', `${path}.defaultPipeline`, `unknown pipeline "${value.defaultPipeline}". Available: ${names}`));
+    }
+  }
+  for (const key of ['riskThreshold', 'complexityThreshold']) {
+    if (value[key] !== undefined) {
+      validatePositiveNumber(value[key], `${path}.${key}`, issues);
+    }
+  }
+}
+
 export function validateProjectConfig(projectConfig = {}, { harnessConfig = null } = {}) {
   const issues = [];
 
@@ -344,10 +368,14 @@ export function validateProjectConfig(projectConfig = {}, { harnessConfig = null
   if (projectConfig.pipeline !== undefined) {
     if (!isNonEmptyString(projectConfig.pipeline)) {
       issues.push(issue('error', 'pipeline', 'must be a non-empty string'));
-    } else if (harnessConfig?.pipelines && !harnessConfig.pipelines[projectConfig.pipeline]) {
+    } else if (projectConfig.pipeline !== 'auto' && harnessConfig?.pipelines && !harnessConfig.pipelines[projectConfig.pipeline]) {
       const names = Object.keys(harnessConfig.pipelines).join(', ');
-      issues.push(issue('error', 'pipeline', `unknown pipeline "${projectConfig.pipeline}". Available: ${names}`));
+      issues.push(issue('error', 'pipeline', `unknown pipeline "${projectConfig.pipeline}". Available: auto, ${names}`));
     }
+  }
+
+  if (projectConfig.pipelineSelection !== undefined) {
+    validatePipelineSelection(projectConfig.pipelineSelection, 'pipelineSelection', issues, { harnessConfig });
   }
 
   const workspaceMode = projectConfig.workspaceMode ?? projectConfig.workspace?.mode;

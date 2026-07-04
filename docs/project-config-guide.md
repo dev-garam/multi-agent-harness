@@ -101,7 +101,11 @@ const run = spawnSync('node', [
 
 ```json
 {
-  "pipeline": "code_fix",
+  "pipeline": "auto",
+  "pipelineSelection": {
+    "mode": "deterministic",
+    "defaultPipeline": "quick_fix"
+  },
   "agent": {
     "provider": "codex"
   },
@@ -128,12 +132,13 @@ const run = spawnSync('node', [
 
 | 값 | 언제 쓰나 |
 | --- | --- |
+| `auto` | deterministic classifier로 요청 성격에 맞는 pipeline을 고르게 할 때 |
 | `quick_fix` | 작은 수정, 단일 버그 수정, 문서/설정 변경 |
 | `code_fix` | 일반적인 기능 수정, 리팩터링, 검증이 필요한 변경 |
 | `safe_fix` | 인증, 결제, 마이그레이션, 대규모 변경처럼 더 조심해야 하는 작업 |
 | `review_only` | 파일을 고치지 않고 코드 리뷰만 받고 싶을 때 |
 
-잘 모르겠으면 `code_fix`로 시작합니다.
+잘 모르겠으면 `auto`로 시작합니다. `auto`는 LLM 호출 없이 keyword/risk/complexity score로 선택하므로 selector 토큰 비용이 들지 않습니다. 복잡한 작업임을 이미 알고 있다면 `--pipeline code_fix`처럼 명시하는 편이 가장 확실합니다.
 
 ## Agent
 

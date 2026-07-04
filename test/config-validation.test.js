@@ -15,7 +15,13 @@ const harnessConfig = {
 };
 
 const valid = validateProjectConfig({
-  pipeline: 'quick_fix',
+  pipeline: 'auto',
+  pipelineSelection: {
+    mode: 'deterministic',
+    defaultPipeline: 'quick_fix',
+    riskThreshold: 3,
+    complexityThreshold: 3
+  },
   workspaceMode: 'patch',
   agent: {
     provider: 'mock',
@@ -121,6 +127,11 @@ assert.deepEqual(valid.errors, []);
 
 const invalid = validateProjectConfig({
   pipeline: 'missing',
+  pipelineSelection: {
+    mode: 'llm',
+    defaultPipeline: 'missing',
+    riskThreshold: 0
+  },
   workspaceMode: 'container',
   agent: {
     outputMode: 'xml',
@@ -204,6 +215,9 @@ const invalid = validateProjectConfig({
 }, { harnessConfig });
 assert.equal(invalid.valid, false);
 assert.ok(invalid.errors.some((entry) => entry.path === 'pipeline'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'pipelineSelection.mode'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'pipelineSelection.defaultPipeline'));
+assert.ok(invalid.errors.some((entry) => entry.path === 'pipelineSelection.riskThreshold'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'workspaceMode'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'agent.outputMode'));
 assert.ok(invalid.errors.some((entry) => entry.path === 'agents.coder'));

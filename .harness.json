@@ -1,5 +1,9 @@
 {
-  "pipeline": "code_fix",
+  "pipeline": "auto",
+  "pipelineSelection": {
+    "mode": "deterministic",
+    "defaultPipeline": "quick_fix"
+  },
   "agent": {
     "provider": "codex"
   },
@@ -21,30 +25,30 @@
     "mode": "mask"
   },
   "context": {
-    "maxPreviousOutputBytes": 262144,
-    "maxStepOutputBytes": 65536,
+    "maxPreviousOutputBytes": 65536,
+    "maxStepOutputBytes": 32768,
     "summarizer": {
       "enabled": true,
       "mode": "deterministic"
     }
   },
   "retry": {
-    "agentRetries": 1,
+    "agentRetries": 0,
     "validationRetries": 1,
     "backoffMs": 1000,
     "retryOnExitCodes": [124],
     "retryOnStderrPatterns": ["rate limit", "timeout", "temporarily unavailable"]
   },
   "budget": {
-    "maxAgentSteps": 20,
-    "maxProviderCalls": 20,
-    "maxValidationCommands": 30,
-    "maxRuntimeMs": 1800000
+    "maxAgentSteps": 8,
+    "maxProviderCalls": 8,
+    "maxValidationCommands": 12,
+    "maxRuntimeMs": 900000
   },
   "supervisor": {
     "enabled": true,
-    "maxSupervisorTurns": 3,
-    "maxStepRetries": 1
+    "maxSupervisorTurns": 2,
+    "maxStepRetries": 0
   },
   "cleanup": {
     "enabled": false,

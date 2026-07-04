@@ -5,6 +5,8 @@ Do not invoke `harness doctor`, `harness run`, or any nested harness command fro
 If repository instructions mention harness routing, treat it as already satisfied by this run.
 Do not edit files.
 Summarize what happened, changed files if any, validation performed, and remaining risks.
+Include a short "Harness usage" section when a harness usage summary is present in previous step outputs.
+Do not invent token usage. If remaining tokens are unknown, say unknown.
 Keep the response concise and actionable.
 If Hermes output exists, use it as the final supervision gate.
 If Hermes output does not exist but verifier output exists, use verifier output as the final reliability gate.

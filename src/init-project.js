@@ -4,8 +4,33 @@ import { createInterface } from 'node:readline/promises';
 import { readText, runCapture, writeText } from './fs-utils.js';
 
 const DEFAULT_AGENT = 'codex';
-const DEFAULT_PIPELINE = 'code_fix';
+const DEFAULT_PIPELINE = 'auto';
+const DEFAULT_PIPELINE_SELECTION = {
+  mode: 'deterministic',
+  defaultPipeline: 'quick_fix'
+};
 const DEFAULT_CLEANUP_KEEP = 20;
+const DEFAULT_CONTEXT = {
+  maxPreviousOutputBytes: 65536,
+  maxStepOutputBytes: 32768,
+  summarizer: {
+    enabled: true,
+    mode: 'deterministic'
+  }
+};
+const DEFAULT_RETRY = {
+  agentRetries: 0,
+  validationRetries: 1,
+  backoffMs: 1000,
+  retryOnExitCodes: [124],
+  retryOnStderrPatterns: ['rate limit', 'timeout', 'temporarily unavailable']
+};
+const DEFAULT_BUDGET = {
+  maxAgentSteps: 8,
+  maxProviderCalls: 8,
+  maxValidationCommands: 12,
+  maxRuntimeMs: 900000
+};
 const SCRIPT_VALIDATIONS = ['lint', 'typecheck', 'check'];
 let pipedAnswers = null;
 
@@ -181,6 +206,7 @@ function summaryLines({ configPath, created, config, inference }) {
 function defaultRuntimeConfig({ validation, protectedBranches }) {
   return {
     pipeline: DEFAULT_PIPELINE,
+    pipelineSelection: DEFAULT_PIPELINE_SELECTION,
     agent: {
       provider: DEFAULT_AGENT
     },
@@ -189,9 +215,16 @@ function defaultRuntimeConfig({ validation, protectedBranches }) {
     validationCommands: validation.validationCommands,
     supervisor: {
       enabled: true,
-      maxSupervisorTurns: 3,
-      maxStepRetries: 1
+      maxSupervisorTurns: 2,
+      maxStepRetries: 0
     },
+    redaction: {
+      enabled: true,
+      mode: 'mask'
+    },
+    context: DEFAULT_CONTEXT,
+    retry: DEFAULT_RETRY,
+    budget: DEFAULT_BUDGET,
     cleanup: {
       enabled: false,
       days: 7,
@@ -207,14 +240,22 @@ function defaultRuntimeConfig({ validation, protectedBranches }) {
 function coreRuntimeConfig({ protectedBranches }) {
   return {
     pipeline: DEFAULT_PIPELINE,
+    pipelineSelection: DEFAULT_PIPELINE_SELECTION,
     agent: {
       provider: DEFAULT_AGENT
     },
     supervisor: {
       enabled: true,
-      maxSupervisorTurns: 3,
-      maxStepRetries: 1
+      maxSupervisorTurns: 2,
+      maxStepRetries: 0
     },
+    redaction: {
+      enabled: true,
+      mode: 'mask'
+    },
+    context: DEFAULT_CONTEXT,
+    retry: DEFAULT_RETRY,
+    budget: DEFAULT_BUDGET,
     cleanup: {
       enabled: false,
       days: 7,
@@ -265,6 +306,11 @@ function refreshProjectConfig(current, detected) {
     addSuggestion(suggestions, 'agent.provider', 'add', detected.agent.provider);
   }
 
+  if (!next.pipelineSelection) {
+    next.pipelineSelection = DEFAULT_PIPELINE_SELECTION;
+    addSuggestion(suggestions, 'pipelineSelection', 'add', 'deterministic auto pipeline selection');
+  }
+
   if (!next.buildCommand && detected.buildCommand) {
     next.buildCommand = detected.buildCommand;
     addSuggestion(suggestions, 'buildCommand', 'add', detected.buildCommand);
@@ -305,6 +351,29 @@ function refreshProjectConfig(current, detected) {
   if (!next.runner) {
     next.runner = detected.runner;
     addSuggestion(suggestions, 'runner.mode', 'add', detected.runner.mode);
+  }
+
+  if (!next.redaction) {
+    next.redaction = {
+      enabled: true,
+      mode: 'mask'
+    };
+    addSuggestion(suggestions, 'redaction', 'add', 'mask mode defaults');
+  }
+
+  if (!next.context) {
+    next.context = DEFAULT_CONTEXT;
+    addSuggestion(suggestions, 'context', 'add', 'conservative context limits');
+  }
+
+  if (!next.retry) {
+    next.retry = DEFAULT_RETRY;
+    addSuggestion(suggestions, 'retry', 'add', 'validation-only retry defaults');
+  }
+
+  if (!next.budget) {
+    next.budget = DEFAULT_BUDGET;
+    addSuggestion(suggestions, 'budget', 'add', 'conservative provider call budget');
   }
 
   const currentBranches = Array.isArray(next.protectedBranches) ? next.protectedBranches : [];

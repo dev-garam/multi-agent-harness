@@ -30,6 +30,12 @@ writeFileSync(path.join(runDir, 'manifest.json'), JSON.stringify({
   request: 'show command test',
   pipeline: 'quick_fix',
   completedPipeline: 'quick_fix',
+  pipelineSelection: {
+    mode: 'deterministic',
+    selected: 'quick_fix',
+    riskScore: 0,
+    complexityScore: 1
+  },
   status: 'succeeded',
   startedAt: '2099-01-01T00:00:00.000Z',
   finishedAt: '2099-01-01T00:00:01.000Z',
@@ -144,6 +150,7 @@ try {
   assert.match(text, /Harness run/);
   assert.match(text, new RegExp(`Run: ${runId}`));
   assert.match(text, /Mode: patch \(isolated\)/);
+  assert.match(text, /Pipeline selection: deterministic selected=quick_fix risk=0 complexity=1/);
   assert.match(text, /Runtime/);
   assert.match(text, /Isolation: none/);
   assert.match(text, /Retries: 1/);
@@ -160,6 +167,7 @@ try {
   assert.equal(json.runId, runId);
   assert.equal(json.status, 'succeeded');
   assert.equal(json.workspace.mode, 'patch');
+  assert.equal(json.pipelineSelection.selected, 'quick_fix');
   assert.equal(json.validationFailures.length, 1);
   assert.equal(json.middleware.retry.retries, 1);
   assert.equal(json.middleware.redaction.redactions, 2);

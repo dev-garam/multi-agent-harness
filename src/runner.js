@@ -20,6 +20,8 @@ import { assertRuntimeRunnerAvailable, runtimeRunnerContract, runtimeRunnerFromO
 import { appendRuntimeSummary, createHarnessRuntime } from './middleware.js';
 import { runToolLifecycle, toolConfigsFromProjectConfig } from './tools.js';
 import { writePromptCacheArtifact } from './prompt-cache.js';
+import { selectPipeline } from './pipeline-selection.js';
+import { formatUsageSummary, summarizeManifestUsage } from './usage.js';
 
 const HERMES_STEP_ID = 'hermes';
 const DEFAULT_MAX_SUPERVISOR_TURNS = 3;
@@ -299,8 +301,13 @@ export async function runPipeline(options, request) {
     throw new Error(`Invalid .harness.json:\n${formatConfigValidationIssues(configValidation)}`);
   }
 
-  const pipelineName = options.pipeline || projectConfig.pipeline;
-  let selected = getPipeline(config, pipelineName);
+  const pipelineSelection = selectPipeline({
+    request,
+    requestedPipeline: options.pipeline || projectConfig.pipeline,
+    projectConfig,
+    harnessConfig: config
+  });
+  let selected = getPipeline(config, pipelineSelection.selected);
   const agent = resolveAgentConfig({ options, projectConfig });
   const agentVersionCache = new Map();
   let runtime = null;
@@ -406,6 +413,7 @@ export async function runPipeline(options, request) {
     executionRepo,
     request,
     pipeline: selected.pipelineName,
+    pipelineSelection,
     dryRun: Boolean(options.dryRun),
     agent: {
       provider: agent.name,
@@ -461,6 +469,7 @@ export async function runPipeline(options, request) {
     pipelineChanges: []
   };
   appendRuntimeSummary(manifest, harnessRuntime);
+  manifest.usageSummary = summarizeManifestUsage(manifest);
   await writeText(path.join(runDir, 'request.txt'), request + '\n');
   await saveManifest(runDir, manifest);
   harnessRuntime.hook('run:start', {
@@ -530,6 +539,7 @@ export async function runPipeline(options, request) {
 
   async function saveRuntimeManifest() {
     appendRuntimeSummary(manifest, harnessRuntime);
+    manifest.usageSummary = summarizeManifestUsage(manifest);
     await saveManifest(runDir, manifest);
   }
 
@@ -654,6 +664,12 @@ export async function runPipeline(options, request) {
     const step = stepForAttempt(baseStep, attempt);
     const stepAgent = resolveStepAgent({ defaultAgent: agent, projectConfig, stepId: baseStep.id });
     const stepAgentVersion = await cachedAgentVersion(stepAgent);
+
+    if (baseStep.id === 'reporter') {
+      appendRuntimeSummary(manifest, harnessRuntime);
+      manifest.usageSummary = summarizeManifestUsage(manifest);
+      previousOutputs = `${previousOutputs}\n\n## harness usage summary\n${formatUsageSummary(manifest.usageSummary)}`;
+    }
 
     const rawPrompt = await renderPrompt(step, {
       request,

@@ -86,3 +86,48 @@ export function parseProviderUsage(text, { provider = 'unknown' } = {}) {
     costUsd: null
   };
 }
+
+export function summarizeManifestUsage(manifest = {}) {
+  const steps = Array.isArray(manifest.steps) ? manifest.steps : [];
+  const entries = steps
+    .filter((step) => step.type === 'agent' && step.usage)
+    .map((step) => ({
+      stepId: step.stepId,
+      provider: step.usage.provider || step.agent || null,
+      adapter: step.usage.adapter || null,
+      status: step.usage.status || 'unknown',
+      totalTokens: step.usage.totalTokens ?? null,
+      costUsd: step.usage.costUsd ?? null
+    }));
+  const providerCalls = manifest.middleware?.state?.counters?.providerCalls ?? 0;
+  const maxProviderCalls = manifest.middleware?.config?.budget?.maxProviderCalls ?? null;
+  const remainingProviderCalls = maxProviderCalls === null
+    ? null
+    : Math.max(0, maxProviderCalls - providerCalls);
+
+  return {
+    providerCalls,
+    maxProviderCalls,
+    remainingProviderCalls,
+    parsedUsageEntries: entries.filter((entry) => entry.status === 'parsed').length,
+    unknownUsageEntries: entries.filter((entry) => entry.status !== 'parsed').length,
+    totalTokens: entries.reduce((total, entry) => total + (entry.totalTokens || 0), 0),
+    costUsd: entries.reduce((total, entry) => total + (entry.costUsd || 0), 0),
+    remainingTokens: null,
+    remainingTokensReason: 'provider did not expose token budget',
+    entries
+  };
+}
+
+export function formatUsageSummary(summary = {}) {
+  return [
+    `providerCalls: ${summary.providerCalls ?? 0}${summary.maxProviderCalls !== null && summary.maxProviderCalls !== undefined ? ` / ${summary.maxProviderCalls}` : ''}`,
+    `remainingProviderCalls: ${summary.remainingProviderCalls ?? 'unknown'}`,
+    `parsedUsageEntries: ${summary.parsedUsageEntries ?? 0}`,
+    `unknownUsageEntries: ${summary.unknownUsageEntries ?? 0}`,
+    `totalTokens: ${summary.totalTokens ?? 0}`,
+    `costUsd: ${summary.costUsd ?? 0}`,
+    `remainingTokens: ${summary.remainingTokens ?? 'unknown'}`,
+    `remainingTokensReason: ${summary.remainingTokensReason || 'unknown'}`
+  ].join('\n');
+}
