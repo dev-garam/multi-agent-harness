@@ -15,7 +15,7 @@ function usage() {
     'Usage:',
     '  harness run --repo <path> [options] "<request>"',
     '  harness install-ide-task --repo <path>',
-    '  harness init-project [--repo <path>] [--refresh] [--interactive] [--apply] [--agent-routing <targets>]',
+    '  harness init-project [--repo <path>] [--refresh] [--interactive] [--apply] [--agent-provider <provider>] [--agent-routing <targets>]',
     '  harness doctor [--repo <path>] [--agent <provider>]',
     '  harness show [--latest|<runId>] [--json]',
     '  harness hermes <subcommand> [options] [request]',
@@ -64,6 +64,7 @@ function usage() {
     '  --refresh suggests updates for an existing .harness.json without changing it.',
     '  --refresh --interactive asks before applying suggested updates.',
     '  --refresh --apply writes the suggested .harness.json updates.',
+    '  --agent-provider <provider> sets the default worker provider in .harness.json.',
     '  --agent-routing <targets> installs routing rules for numbers like 1,4, names, or all.',
     '  --reset-agent-routing rewrites an existing harness routing block.',
     '  --remove-agent-routing removes the harness-owned routing block.',
@@ -93,6 +94,8 @@ function parseArgs(args) {
       options.pipeline = args[++index];
     } else if (arg === '--agent') {
       options.agent = args[++index];
+    } else if (arg === '--agent-provider') {
+      options.agentProvider = args[++index];
     } else if (arg === '--workspace-mode') {
       options.workspaceMode = args[++index];
     } else if (arg === '--runner') {
@@ -188,6 +191,7 @@ export async function main(args) {
       refresh: Boolean(parsed.options.refresh),
       interactive: Boolean(parsed.options.interactive),
       apply: Boolean(parsed.options.apply),
+      agentProvider: parsed.options.agentProvider || null,
       agentRouting: parsed.options.agentRouting || null,
       resetAgentRouting: Boolean(parsed.options.resetAgentRouting),
       removeAgentRouting: Boolean(parsed.options.removeAgentRouting)

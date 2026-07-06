@@ -34,12 +34,24 @@
 
 ## 빠른 시작
 
-대상 프로젝트에 기본 설정 파일을 만듭니다.
+하네스 설치부터 대상 프로젝트 온보딩까지의 기본 흐름은 아래 5단계입니다.
+
+1. 하네스 저장소를 받습니다.
+2. 하네스 저장소로 이동합니다.
+3. 전역 `harness` 명령을 연결합니다.
+4. CLI 연결을 확인합니다.
+5. 대상 프로젝트에서 온보딩을 시작합니다.
 
 ```sh
+git clone <harness-repo-url> ~/.harness
+cd ~/.harness
+npm link
+harness --help
 cd /path/to/project
 harness init-project
 ```
+
+`npm link`는 `package.json`의 `bin.harness` 설정을 사용해 전역 `harness` 명령을 현재 checkout의 `bin/harness`에 연결합니다. clone만으로는 자동 등록되지 않으므로 새 환경에서는 한 번 실행해야 합니다.
 
 일반 터미널에서 `harness init-project`를 실행하면 `.harness.json`을 만들거나 확인한 뒤 온보딩 질문을 이어갑니다. `init-project`는 빈 템플릿만 쓰지 않고, 현재 프로젝트에서 가능한 값을 자동으로 채웁니다.
 
@@ -69,18 +81,7 @@ harness init-project --repo /path/to/project --agent-routing 1,4
 node ./bin/harness run --repo /path/to/project --pipeline auto --agent codex "작업 요청"
 ```
 
-전역 CLI로 연결했다면 `harness` 명령을 바로 사용할 수 있습니다. clone만으로는 자동 등록되지 않으므로, 새 환경에서는 하네스 레포 루트에서 `npm link`를 한 번 실행합니다.
-
-```sh
-cd /path/to/_harness
-npm link
-which harness
-harness --help
-harness doctor --repo /path/to/project --agent codex
-harness run --repo /path/to/project --pipeline safe_fix --agent codex "검증까지 안전하게 처리해줘"
-```
-
-`npm link`는 `package.json`의 `bin.harness` 설정을 사용해 전역 `harness` 명령을 현재 checkout의 `bin/harness`에 연결합니다.
+전역 CLI로 연결했다면 `harness` 명령을 바로 사용할 수 있습니다.
 
 실제 에이전트를 실행하지 않고 prompt와 manifest 생성만 확인하려면 `--dry-run`을 붙입니다.
 
@@ -114,7 +115,7 @@ harness doctor [--repo <path>] [--agent <provider>]
 harness show [--latest|<runId>] [--json]
 harness hermes <subcommand> [options] [request]
 harness eval [--repo <path>] [--json]
-harness init-project [--repo <path>] [--refresh] [--interactive] [--apply] [--agent-routing <targets>]
+harness init-project [--repo <path>] [--refresh] [--interactive] [--apply] [--agent-provider <provider>] [--agent-routing <targets>]
 harness install-ide-task --repo <path>
 harness watch [--interval <ms>] [--once] [--include-existing]
 harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
@@ -129,6 +130,11 @@ harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
 - `--runner-image <image>`: Docker runner가 사용할 이미지를 지정합니다.
 - `--dry-run`: agent를 실행하지 않고 prompt와 manifest 생성을 확인합니다.
 - `--policy-approved`: direct run policy gate를 명시적으로 승인합니다.
+
+주요 `init-project` 옵션:
+
+- `--agent-provider <provider>`: `.harness.json`의 기본 worker provider를 `codex`, `claude`, `antigravity` 중 하나로 설정합니다.
+- `--agent-routing <targets>`: IDE/CLI 에이전트가 하네스를 호출하도록 라우팅 파일을 설치합니다.
 
 - `run`: 파이프라인을 실행합니다.
 - `doctor`: 에이전트 CLI 연결 상태를 확인합니다.
@@ -446,7 +452,7 @@ harness init-project
 harness init-project --interactive
 ```
 
-새 프로젝트처럼 `.harness.json`이 없을 때도 파일 생성 후 온보딩 질문이 이어집니다. 이미 `.harness.json`이 있을 때는 아래 네 가지 질문이 순서대로 나옵니다.
+새 프로젝트처럼 `.harness.json`이 없을 때도 파일 생성 후 온보딩 질문이 이어집니다. 이미 `.harness.json`이 있을 때는 아래 다섯 가지 질문이 순서대로 나옵니다.
 
 첫 번째 질문은 기존 설정을 전체 리셋할지 묻습니다.
 
@@ -487,6 +493,8 @@ Install harness routing rules for coding agents? [Y/n]
 - `n`: 새 라우팅 파일을 만들지 않고, 하네스가 이전에 만든 라우팅 블록이 있으면 제거합니다. 마커 밖에 사용자가 직접 쓴 문서는 유지합니다.
 - Enter: 기본값 `y`로 처리합니다.
 
+네 번째 질문에서 `y` 또는 Enter를 입력한 경우에만 라우팅 대상 선택 질문이 이어집니다.
+
 ```text
 Select routing targets:
   1. Codex (AGENTS.md)
@@ -498,16 +506,29 @@ Enter numbers separated by comma [1]:
 
 예를 들어 Codex와 Cursor를 같이 쓰면 `1,4`를 입력합니다. Enter만 누르면 기본값으로 `1`만 적용합니다. Claude, Cursor, Gemini, Antigravity까지 한 번에 설정하려면 비대화형 옵션 `--agent-routing all`을 사용할 수도 있습니다.
 
+다섯 번째이자 마지막 질문은 하네스 내부 worker provider를 무엇으로 둘지 묻습니다. 상위 도구의 라우팅 파일과 별개로 `.harness.json`의 `agent.provider`에 저장됩니다.
+
+```text
+Select default worker provider:
+  1. Codex
+  2. Claude Code
+  3. Antigravity
+Enter number or provider name [codex]:
+```
+
 ### Agent Routing 자동 설치
 
 `.harness.json`은 하네스 실행 설정이고, `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`/Cursor rules는 IDE나 CLI 에이전트가 “언제 하네스를 태울지” 판단하는 라우팅 규칙입니다. `init-project`에서 함께 설치할 수 있습니다.
 
 ```sh
 harness init-project --repo . --agent-routing codex
+harness init-project --repo . --agent-provider claude
 harness init-project --repo . --agent-routing 1,4
 harness init-project --repo . --agent-routing codex,claude,cursor,gemini,antigravity
 harness init-project --repo . --agent-routing all
 ```
+
+`--agent-provider`는 하네스 내부 worker provider를 정하고, `--agent-routing`은 Codex/Claude Code/Cursor 같은 상위 도구가 하네스를 호출하도록 안내 파일을 설치합니다. 두 설정은 별개입니다.
 
 대상 파일:
 
@@ -1007,13 +1028,19 @@ harness init-project --agent-routing 1,4
 실행 전 연결 상태를 확인한다.
 
 ```sh
-harness doctor --repo . --agent codex
+harness doctor --repo .
 ```
 
-그 다음 요청 성격에 맞는 파이프라인으로 실행한다.
+기본 실행은 프로젝트의 `.harness.json` 설정을 따른다.
 
 ```sh
-harness run --repo . --pipeline auto --agent codex "<사용자 요청>"
+harness run --repo . "<사용자 요청>"
+```
+
+사용자가 특정 파이프라인을 명시한 경우에만 `--pipeline`을 붙인다.
+
+```sh
+harness run --repo . --pipeline safe_fix "<사용자 요청>"
 ```
 
 파이프라인 기준:

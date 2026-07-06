@@ -56,7 +56,7 @@ harness init-project
 harness init-project --interactive
 ```
 
-새 프로젝트처럼 `.harness.json`이 없을 때도 파일 생성 후 온보딩 질문이 이어집니다. 이미 `.harness.json`이 있을 때는 아래 네 가지 질문이 순서대로 나옵니다.
+새 프로젝트처럼 `.harness.json`이 없을 때도 파일 생성 후 온보딩 질문이 이어집니다. 이미 `.harness.json`이 있을 때는 아래 다섯 가지 질문이 순서대로 나옵니다.
 
 대화형 질문의 대문자는 기본값입니다. `[y/N]`에서 Enter는 `n`이고, `[Y/n]`에서 Enter는 `y`입니다. 리셋처럼 되돌리기 어려운 질문은 `N`을 기본값으로 두고, 온보딩 추천값은 `Y`를 기본값으로 둡니다.
 
@@ -92,6 +92,8 @@ Install harness routing rules for coding agents? [Y/n]
 
 `y` 또는 Enter를 입력하면 어떤 coding agent용 라우팅 파일을 설치할지 번호로 선택합니다. `n`을 입력하면 새 라우팅 파일을 만들지 않고, 하네스가 이전에 만든 라우팅 블록이 있으면 제거합니다. 마커 밖의 사용자가 직접 쓴 문서는 유지합니다.
 
+네 번째 질문에서 `y` 또는 Enter를 입력한 경우에만 라우팅 대상 선택 질문이 이어집니다.
+
 ```text
 Select routing targets:
   1. Codex (AGENTS.md)
@@ -103,9 +105,20 @@ Enter numbers separated by comma [1]:
 
 예를 들어 Codex와 Cursor를 같이 쓰면 `1,4`를 입력합니다. Enter만 누르면 기본값으로 `1`번 Codex가 선택됩니다.
 
-비대화형으로 라우팅 파일만 설치, 초기화, 제거할 수도 있습니다.
+마지막 질문은 하네스 내부 worker provider를 무엇으로 둘지 묻습니다. 상위 도구의 라우팅 파일과 별개로 `.harness.json`의 `agent.provider`에 저장됩니다.
+
+```text
+Select default worker provider:
+  1. Codex
+  2. Claude Code
+  3. Antigravity
+Enter number or provider name [codex]:
+```
+
+비대화형으로 기본 provider를 바꾸거나 라우팅 파일을 설치, 초기화, 제거할 수도 있습니다.
 
 ```sh
+harness init-project --agent-provider claude
 harness init-project --agent-routing 1,4
 harness init-project --agent-routing all --reset-agent-routing
 harness init-project --agent-routing all --remove-agent-routing

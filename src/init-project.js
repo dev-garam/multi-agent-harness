@@ -63,6 +63,12 @@ const ROUTING_TARGET_SELECTIONS = {
   3: ['gemini', 'antigravity'],
   4: ['cursor']
 };
+const AGENT_PROVIDER_SELECTIONS = {
+  1: 'codex',
+  2: 'claude',
+  3: 'antigravity'
+};
+const BUILTIN_AGENT_PROVIDERS = new Set(['codex', 'claude', 'antigravity']);
 let pipedAnswers = null;
 
 function packageManagerForRepo(repo) {
@@ -234,6 +240,48 @@ function summaryLines({ configPath, created, config, inference }) {
   return lines;
 }
 
+function normalizeAgentProvider(value, { allowedCustomProvider = null } = {}) {
+  if (!value) {
+    return DEFAULT_AGENT;
+  }
+
+  const rawProvider = String(value).trim();
+  const provider = AGENT_PROVIDER_SELECTIONS[rawProvider] || rawProvider.toLowerCase();
+  if (!provider) {
+    throw new Error('Agent provider must be a non-empty string.');
+  }
+
+  if (allowedCustomProvider && rawProvider === allowedCustomProvider) {
+    return rawProvider;
+  }
+
+  if (!BUILTIN_AGENT_PROVIDERS.has(provider)) {
+    throw new Error(`Unsupported agent provider: ${provider}. Available: ${[...BUILTIN_AGENT_PROVIDERS].join(', ')}.`);
+  }
+
+  return provider;
+}
+
+function currentAgentProvider(config) {
+  if (typeof config.agent === 'string') {
+    return config.agent;
+  }
+  return config.agent?.provider || config.agent?.name || null;
+}
+
+function setAgentProvider(config, provider) {
+  if (typeof config.agent === 'object' && config.agent !== null && !Array.isArray(config.agent)) {
+    config.agent = {
+      ...config.agent,
+      provider
+    };
+  } else {
+    config.agent = {
+      provider
+    };
+  }
+}
+
 function routingInstructions() {
   return [
     '## Harness Routing',
@@ -243,7 +291,7 @@ function routingInstructions() {
     '실행 전 연결 상태를 확인한다.',
     '',
     '```sh',
-    'harness doctor --repo . --agent codex',
+    'harness doctor --repo .',
     '```',
     '',
     '기본 실행은 프로젝트의 `.harness.json` 설정을 따른다.',
@@ -321,6 +369,20 @@ async function askRoutingTargets(rl = null) {
   ].join('\n'), rl);
   const selected = answer.trim() || '1';
   return normalizeRoutingTargets(selected).join(',');
+}
+
+async function askAgentProvider(rl = null, currentProvider = DEFAULT_AGENT) {
+  const fallbackProvider = String(currentProvider || DEFAULT_AGENT).trim() || DEFAULT_AGENT;
+  const answer = await askQuestion([
+    'Select default worker provider:',
+    '  1. Codex',
+    '  2. Claude Code',
+    '  3. Antigravity',
+    `Enter number or provider name [${fallbackProvider}]: `
+  ].join('\n'), rl);
+  return normalizeAgentProvider(answer.trim() || fallbackProvider, {
+    allowedCustomProvider: BUILTIN_AGENT_PROVIDERS.has(fallbackProvider) ? null : fallbackProvider
+  });
 }
 
 function replaceRoutingBlock(text, block) {
@@ -436,12 +498,12 @@ async function applyAgentRouting(repo, { targets, reset = false, remove = false 
   return results;
 }
 
-function defaultRuntimeConfig({ validation, protectedBranches }) {
+function defaultRuntimeConfig({ validation, protectedBranches, agentProvider = DEFAULT_AGENT }) {
   return {
     pipeline: DEFAULT_PIPELINE,
     pipelineSelection: DEFAULT_PIPELINE_SELECTION,
     agent: {
-      provider: DEFAULT_AGENT
+      provider: agentProvider
     },
     testCommand: validation.testCommand,
     buildCommand: validation.buildCommand,
@@ -470,12 +532,12 @@ function defaultRuntimeConfig({ validation, protectedBranches }) {
   };
 }
 
-function coreRuntimeConfig({ protectedBranches }) {
+function coreRuntimeConfig({ protectedBranches, agentProvider = DEFAULT_AGENT }) {
   return {
     pipeline: DEFAULT_PIPELINE,
     pipelineSelection: DEFAULT_PIPELINE_SELECTION,
     agent: {
-      provider: DEFAULT_AGENT
+      provider: agentProvider
     },
     supervisor: {
       enabled: true,
@@ -501,12 +563,12 @@ function coreRuntimeConfig({ protectedBranches }) {
   };
 }
 
-async function detectProjectDefaults(repo) {
+async function detectProjectDefaults(repo, { agentProvider = DEFAULT_AGENT } = {}) {
   const scripts = await readPackageScripts(repo);
   const validation = validationConfigFromScripts(repo, scripts);
   const protectedBranches = await protectedBranchesForRepo(repo);
   return {
-    config: defaultRuntimeConfig({ validation, protectedBranches }),
+    config: defaultRuntimeConfig({ validation, protectedBranches, agentProvider }),
     inference: validation
   };
 }
@@ -525,7 +587,7 @@ function addSuggestion(suggestions, path, action, detail) {
   suggestions.push({ path, action, detail });
 }
 
-function refreshProjectConfig(current, detected) {
+function refreshProjectConfig(current, detected, { agentProvider = null } = {}) {
   const next = JSON.parse(JSON.stringify(current));
   const suggestions = [];
 
@@ -537,6 +599,19 @@ function refreshProjectConfig(current, detected) {
   if (!next.agent) {
     next.agent = detected.agent;
     addSuggestion(suggestions, 'agent.provider', 'add', detected.agent.provider);
+  }
+
+  if (agentProvider) {
+    const previousProvider = currentAgentProvider(next);
+    if (previousProvider !== agentProvider) {
+      setAgentProvider(next, agentProvider);
+      addSuggestion(
+        suggestions,
+        'agent.provider',
+        previousProvider ? 'replace' : 'add',
+        previousProvider ? `${previousProvider} -> ${agentProvider}` : agentProvider
+      );
+    }
   }
 
   if (!next.pipelineSelection) {
@@ -692,13 +767,17 @@ function shouldAskInteractively(interactive) {
   return interactive || (process.stdin.isTTY && process.stdout.isTTY);
 }
 
-async function refreshExistingConfig(repo, configPath, { interactive = false, apply = false, rl = null } = {}) {
+async function refreshExistingConfig(repo, configPath, { interactive = false, apply = false, rl = null, agentProvider = null } = {}) {
   const current = JSON.parse(await readText(configPath));
   const scripts = await readPackageScripts(repo);
   const validation = validationConfigFromScripts(repo, scripts);
   const protectedBranches = await protectedBranchesForRepo(repo);
-  const detected = defaultRuntimeConfig({ validation, protectedBranches });
-  const refreshed = refreshProjectConfig(current, detected);
+  const detected = defaultRuntimeConfig({
+    validation,
+    protectedBranches,
+    agentProvider: agentProvider || DEFAULT_AGENT
+  });
+  const refreshed = refreshProjectConfig(current, detected, { agentProvider });
   let shouldApply = apply;
   let declined = false;
 
@@ -750,7 +829,25 @@ async function writeConfigSuggestionPreference(configPath, enabled) {
   return config.configSuggestions;
 }
 
-async function runInteractiveOnboarding(repo, configPath, output, rl) {
+async function applyAgentProviderOverride(result, configPath, agentProvider) {
+  if (!agentProvider) {
+    return result;
+  }
+
+  const config = JSON.parse(await readText(configPath));
+  const previousProvider = currentAgentProvider(config);
+  if (previousProvider === agentProvider) {
+    result.output.push(`Agent provider: ${agentProvider} (unchanged).`);
+    return result;
+  }
+
+  setAgentProvider(config, agentProvider);
+  await writeText(configPath, JSON.stringify(config, null, 2) + '\n');
+  result.output.push(`Agent provider: ${previousProvider || '(none)'} -> ${agentProvider}.`);
+  return result;
+}
+
+async function runInteractiveOnboarding(repo, configPath, output, rl, { agentProvider = null } = {}) {
   const allowFutureSuggestions = await confirm('Allow the harness to ask before adding helpful config during future work? [Y/n] ', rl, { defaultValue: true });
   const preference = await writeConfigSuggestionPreference(configPath, allowFutureSuggestions);
   output.push(allowFutureSuggestions
@@ -786,10 +883,15 @@ async function runInteractiveOnboarding(repo, configPath, output, rl) {
     }
   }
 
+  const config = JSON.parse(await readText(configPath));
+  const selectedProvider = agentProvider || await askAgentProvider(rl, currentAgentProvider(config) || DEFAULT_AGENT);
+  const providerResult = await applyAgentProviderOverride({ output }, configPath, selectedProvider);
+  output = providerResult.output;
+
   return preference;
 }
 
-async function runInteractiveExistingConfig(repo, configPath, rl) {
+async function runInteractiveExistingConfig(repo, configPath, rl, { agentProvider = null } = {}) {
   const output = [
     `Project harness config: ${configPath}`
   ];
@@ -797,24 +899,33 @@ async function runInteractiveExistingConfig(repo, configPath, rl) {
   const shouldAddRecommended = await confirm('Add recommended default fields to .harness.json? [Y/n] ', rl, { defaultValue: true });
 
   if (shouldReset) {
-    const detected = await detectProjectDefaults(repo);
+    const detected = await detectProjectDefaults(repo, {
+      agentProvider: agentProvider || DEFAULT_AGENT
+    });
     const resetConfig = shouldAddRecommended
       ? detected.config
-      : coreRuntimeConfig({ protectedBranches: detected.config.protectedBranches });
+      : coreRuntimeConfig({
+          protectedBranches: detected.config.protectedBranches,
+          agentProvider: agentProvider || DEFAULT_AGENT
+        });
     await writeText(configPath, JSON.stringify(resetConfig, null, 2) + '\n');
     output.push(shouldAddRecommended
       ? 'Reset .harness.json with newly detected defaults.'
       : 'Reset .harness.json with core defaults.');
   } else {
     if (shouldAddRecommended) {
-      const refreshed = await refreshExistingConfig(repo, configPath, { interactive: false, apply: true });
+      const refreshed = await refreshExistingConfig(repo, configPath, {
+        interactive: false,
+        apply: true,
+        agentProvider
+      });
       output.push(...refreshed.output.slice(1));
     } else {
       output.push('Kept existing .harness.json fields unchanged.');
     }
   }
 
-  const preference = await runInteractiveOnboarding(repo, configPath, output, rl);
+  const preference = await runInteractiveOnboarding(repo, configPath, output, rl, { agentProvider });
 
   return {
     configPath,
@@ -851,14 +962,20 @@ export async function initProjectConfig(repo, {
   refresh = false,
   interactive = false,
   apply = false,
+  agentProvider = null,
   agentRouting = null,
   resetAgentRouting = false,
   removeAgentRouting = false
 } = {}) {
+  const normalizedAgentProvider = agentProvider ? normalizeAgentProvider(agentProvider) : null;
   const configPath = path.join(repo, '.harness.json');
   if (existsSync(configPath)) {
     if (refresh) {
-      const result = await refreshExistingConfig(repo, configPath, { interactive, apply });
+      const result = await refreshExistingConfig(repo, configPath, {
+        interactive,
+        apply,
+        agentProvider: normalizedAgentProvider
+      });
       return withAgentRouting(result, repo, { agentRouting, resetAgentRouting, removeAgentRouting });
     }
 
@@ -871,7 +988,9 @@ export async function initProjectConfig(repo, {
           })
         : null;
       try {
-        const result = await runInteractiveExistingConfig(repo, configPath, rl);
+        const result = await runInteractiveExistingConfig(repo, configPath, rl, {
+          agentProvider: normalizedAgentProvider
+        });
         return withAgentRouting(result, repo, { agentRouting, resetAgentRouting, removeAgentRouting });
       } finally {
         if (rl) {
@@ -880,14 +999,17 @@ export async function initProjectConfig(repo, {
       }
     }
 
-    return withAgentRouting({
+    const result = await applyAgentProviderOverride({
       configPath,
       created: false,
       output: summaryLines({ configPath, created: false })
-    }, repo, { agentRouting, resetAgentRouting, removeAgentRouting });
+    }, configPath, normalizedAgentProvider);
+    return withAgentRouting(result, repo, { agentRouting, resetAgentRouting, removeAgentRouting });
   }
 
-  const detected = await detectProjectDefaults(repo);
+  const detected = await detectProjectDefaults(repo, {
+    agentProvider: normalizedAgentProvider || DEFAULT_AGENT
+  });
   const config = detected.config;
 
   await writeText(configPath, JSON.stringify(config, null, 2) + '\n');
@@ -917,7 +1039,9 @@ export async function initProjectConfig(repo, {
         })
       : null;
     try {
-      const preference = await runInteractiveOnboarding(repo, configPath, result.output, rl);
+      const preference = await runInteractiveOnboarding(repo, configPath, result.output, rl, {
+        agentProvider: normalizedAgentProvider
+      });
       result.interactive = true;
       result.configSuggestions = preference;
       return result;
