@@ -62,4 +62,37 @@ const summary = runtime.summary();
 assert.equal(summary.config.retry.agentRetries, 1);
 assert.ok(summary.events.some((event) => event.type === 'redaction'));
 
+// A1: redaction hardening — 기본 ON / 명시적 false만 OFF
+const defaultOn = createHarnessRuntime({ projectConfig: {} });
+assert.equal(defaultOn.redactText('sk-abcdefghijklmnopqrstuvwxyz').redacted, true, 'redaction defaults on');
+const explicitOff = createHarnessRuntime({ projectConfig: { redaction: { enabled: false } } });
+assert.equal(explicitOff.redactText('sk-abcdefghijklmnopqrstuvwxyz').redacted, false, 'explicit false disables');
+
+// 확장 패턴
+assert.equal(defaultOn.redactText('AKIAIOSFODNN7EXAMPLE').redacted, true, 'aws access key pattern');
+assert.equal(defaultOn.redactText('password: hunter2secret').redacted, true, 'generic assignment pattern');
+assert.equal(
+  defaultOn.redactText('eyJhbGciOiJIUzI1NiIsInR5.eyJzdWIiOiIxMjM0NTY3.SflKxwRJSMeKKF2QT4').redacted,
+  true,
+  'jwt pattern'
+);
+
+// 스트림 청크 경계 누수 방지
+const stream = defaultOn.redactStream({ surface: 'test' });
+const streamSecret = 'sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ012345';
+let streamOut = stream.push('prefix sk-ABCDEFGHIJ');
+streamOut += stream.push('KLMNOPQRSTUVWXYZ012345 tail\n');
+streamOut += stream.flush();
+assert.ok(!streamOut.includes(streamSecret), 'stream redactor prevents chunk-boundary leak');
+assert.match(streamOut, /\[REDACTED\]/, 'stream redactor masks secret');
+
+// 무효 custom 패턴 경고
+const badPatternRt = createHarnessRuntime({
+  projectConfig: { redaction: { enabled: true, patterns: [{ id: 'bad', pattern: '(' }] } }
+});
+assert.ok(
+  badPatternRt.events.some((event) => event.type === 'redaction:invalid-pattern'),
+  'invalid custom pattern is warned'
+);
+
 console.log('middleware tests passed');

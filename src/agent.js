@@ -196,7 +196,7 @@ function tailText(value, maxBytes = 4096) {
   return buffer.subarray(Math.max(0, buffer.length - maxBytes)).toString();
 }
 
-export async function runAgentStep({ repo, runDir, step, prompt, promptPath, agent, resources = {}, runtime = null, redact = null }) {
+export async function runAgentStep({ repo, runDir, step, prompt, promptPath, agent, resources = {}, runtime = null, redact = null, redactStream = null }) {
   const startedAt = new Date();
   const eventsPath = path.join(runDir, `${step.id}.${agent.name}.stdout.log`);
   const stderrPath = path.join(runDir, `${step.id}.${agent.name}.stderr.log`);
@@ -223,6 +223,13 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
   let stdoutTruncated = false;
   let stderrTruncated = false;
   let lastOutputAt = null;
+  // 청크 경계 secret 누수를 막기 위해 스트림 redactor(줄 단위)를 사용한다.
+  const stdoutRedactor = redactStream
+    ? redactStream({ surface: 'agent.stdout', stepId: step.id, agent: agent.name })
+    : null;
+  const stderrRedactor = redactStream
+    ? redactStream({ surface: 'agent.stderr', stepId: step.id, agent: agent.name })
+    : null;
 
   try {
     const child = spawnRuntimeCommand({
@@ -261,9 +268,11 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
     process.once('SIGTERM', onSigterm);
 
     child.stdout.on('data', (chunk) => {
-      const value = redact
-        ? redact(chunk.toString(), { surface: 'agent.stdout', stepId: step.id, agent: agent.name }).text
-        : chunk.toString();
+      const value = stdoutRedactor
+        ? stdoutRedactor.push(chunk.toString())
+        : redact
+          ? redact(chunk.toString(), { surface: 'agent.stdout', stepId: step.id, agent: agent.name }).text
+          : chunk.toString();
       lastOutputAt = new Date();
       const limited = appendLimited(stdout, value, maxLogBytes);
       stdout = limited.text;
@@ -272,9 +281,11 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
     });
 
     child.stderr.on('data', (chunk) => {
-      const value = redact
-        ? redact(chunk.toString(), { surface: 'agent.stderr', stepId: step.id, agent: agent.name }).text
-        : chunk.toString();
+      const value = stderrRedactor
+        ? stderrRedactor.push(chunk.toString())
+        : redact
+          ? redact(chunk.toString(), { surface: 'agent.stderr', stepId: step.id, agent: agent.name }).text
+          : chunk.toString();
       lastOutputAt = new Date();
       const limited = appendLimited(stderr, value, maxLogBytes);
       stderr = limited.text;
@@ -298,6 +309,26 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
   } catch (error) {
     stderr += `${error instanceof Error ? error.message : String(error)}\n`;
     exitCode = 1;
+  }
+
+  // 스트림 redactor에 남은 미완성 줄(carry)을 마스킹해 마저 반영한다.
+  if (stdoutRedactor) {
+    const tail = stdoutRedactor.flush();
+    if (tail) {
+      const limited = appendLimited(stdout, tail, maxLogBytes);
+      stdout = limited.text;
+      stdoutTruncated = stdoutTruncated || limited.truncated;
+      process.stdout.write(tail);
+    }
+  }
+  if (stderrRedactor) {
+    const tail = stderrRedactor.flush();
+    if (tail) {
+      const limited = appendLimited(stderr, tail, maxLogBytes);
+      stderr = limited.text;
+      stderrTruncated = stderrTruncated || limited.truncated;
+      process.stderr.write(tail);
+    }
   }
 
   await writeText(eventsPath, stdout);

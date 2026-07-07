@@ -52,7 +52,7 @@ function envAllowlistForTool(runtime, tool) {
   return tool.envAllowlist;
 }
 
-async function runToolCommand({ repo, runDir, tool, phase, command, runtime = null, redact = null }) {
+async function runToolCommand({ repo, runDir, tool, phase, command, runtime = null, redact = null, redactStream = null }) {
   const startedAt = new Date();
   const safeId = slug(`${tool.id}-${phase}`);
   const stdoutPath = path.join(runDir, `tool-${safeId}.stdout.log`);
@@ -71,6 +71,12 @@ async function runToolCommand({ repo, runDir, tool, phase, command, runtime = nu
   let stderrTruncated = false;
   let timedOut = false;
   let closed = false;
+  const stdoutRedactor = redactStream
+    ? redactStream({ surface: 'tool.stdout', tool: tool.id, phase })
+    : null;
+  const stderrRedactor = redactStream
+    ? redactStream({ surface: 'tool.stderr', tool: tool.id, phase })
+    : null;
 
   const timer = setTimeout(() => {
     timedOut = true;
@@ -84,7 +90,9 @@ async function runToolCommand({ repo, runDir, tool, phase, command, runtime = nu
   }, tool.timeoutMs);
 
   child.stdout.on('data', (chunk) => {
-    const value = redact ? redact(chunk.toString(), { surface: 'tool.stdout', tool: tool.id, phase }).text : chunk.toString();
+    const value = stdoutRedactor
+      ? stdoutRedactor.push(chunk.toString())
+      : redact ? redact(chunk.toString(), { surface: 'tool.stdout', tool: tool.id, phase }).text : chunk.toString();
     const limited = appendLimited(stdout, value, tool.maxLogBytes);
     stdout = limited.text;
     stdoutTruncated = stdoutTruncated || limited.truncated;
@@ -92,7 +100,9 @@ async function runToolCommand({ repo, runDir, tool, phase, command, runtime = nu
   });
 
   child.stderr.on('data', (chunk) => {
-    const value = redact ? redact(chunk.toString(), { surface: 'tool.stderr', tool: tool.id, phase }).text : chunk.toString();
+    const value = stderrRedactor
+      ? stderrRedactor.push(chunk.toString())
+      : redact ? redact(chunk.toString(), { surface: 'tool.stderr', tool: tool.id, phase }).text : chunk.toString();
     const limited = appendLimited(stderr, value, tool.maxLogBytes);
     stderr = limited.text;
     stderrTruncated = stderrTruncated || limited.truncated;
@@ -110,6 +120,25 @@ async function runToolCommand({ repo, runDir, tool, phase, command, runtime = nu
       resolve(timedOut ? 124 : code);
     });
   });
+
+  if (stdoutRedactor) {
+    const tail = stdoutRedactor.flush();
+    if (tail) {
+      const limited = appendLimited(stdout, tail, tool.maxLogBytes);
+      stdout = limited.text;
+      stdoutTruncated = stdoutTruncated || limited.truncated;
+      process.stdout.write(tail);
+    }
+  }
+  if (stderrRedactor) {
+    const tail = stderrRedactor.flush();
+    if (tail) {
+      const limited = appendLimited(stderr, tail, tool.maxLogBytes);
+      stderr = limited.text;
+      stderrTruncated = stderrTruncated || limited.truncated;
+      process.stderr.write(tail);
+    }
+  }
 
   const finishedAt = new Date();
   await writeText(stdoutPath, stdout);
@@ -137,7 +166,7 @@ async function runToolCommand({ repo, runDir, tool, phase, command, runtime = nu
   };
 }
 
-export async function runToolLifecycle({ repo, runDir, tools, phase, runtime = null, redact = null }) {
+export async function runToolLifecycle({ repo, runDir, tools, phase, runtime = null, redact = null, redactStream = null }) {
   const results = [];
   for (const tool of tools) {
     const command = phase === 'setup' ? tool.setupCommand : tool.teardownCommand;
@@ -158,7 +187,8 @@ export async function runToolLifecycle({ repo, runDir, tools, phase, runtime = n
       phase,
       command,
       runtime,
-      redact
+      redact,
+      redactStream
     }));
   }
   return results;

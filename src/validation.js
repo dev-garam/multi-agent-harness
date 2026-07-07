@@ -64,7 +64,7 @@ function tailText(value, maxBytes = 4096) {
   return buffer.subarray(Math.max(0, buffer.length - maxBytes)).toString();
 }
 
-export async function runValidationCommand({ repo, runDir, id, command, timeoutMs = DEFAULT_TIMEOUT_MS, maxLogBytes = DEFAULT_MAX_LOG_BYTES, runtime = null, redact = null }) {
+export async function runValidationCommand({ repo, runDir, id, command, timeoutMs = DEFAULT_TIMEOUT_MS, maxLogBytes = DEFAULT_MAX_LOG_BYTES, runtime = null, redact = null, redactStream = null }) {
   const startedAt = new Date();
   const safeId = slug(id);
   const stdoutPath = path.join(runDir, `validation-${safeId}.stdout.log`);
@@ -86,6 +86,12 @@ export async function runValidationCommand({ repo, runDir, id, command, timeoutM
   let stdoutTruncated = false;
   let stderrTruncated = false;
   let lastOutputAt = null;
+  const stdoutRedactor = redactStream
+    ? redactStream({ surface: 'validation.stdout', id: safeId })
+    : null;
+  const stderrRedactor = redactStream
+    ? redactStream({ surface: 'validation.stderr', id: safeId })
+    : null;
 
   const timer = setTimeout(() => {
     timedOut = true;
@@ -115,9 +121,11 @@ export async function runValidationCommand({ repo, runDir, id, command, timeoutM
   process.once('SIGTERM', onSigterm);
 
   child.stdout.on('data', (chunk) => {
-    const value = redact
-      ? redact(chunk.toString(), { surface: 'validation.stdout', id: safeId }).text
-      : chunk.toString();
+    const value = stdoutRedactor
+      ? stdoutRedactor.push(chunk.toString())
+      : redact
+        ? redact(chunk.toString(), { surface: 'validation.stdout', id: safeId }).text
+        : chunk.toString();
     lastOutputAt = new Date();
     const limited = appendLimited(stdout, value, maxLogBytes);
     stdout = limited.text;
@@ -126,9 +134,11 @@ export async function runValidationCommand({ repo, runDir, id, command, timeoutM
   });
 
   child.stderr.on('data', (chunk) => {
-    const value = redact
-      ? redact(chunk.toString(), { surface: 'validation.stderr', id: safeId }).text
-      : chunk.toString();
+    const value = stderrRedactor
+      ? stderrRedactor.push(chunk.toString())
+      : redact
+        ? redact(chunk.toString(), { surface: 'validation.stderr', id: safeId }).text
+        : chunk.toString();
     lastOutputAt = new Date();
     const limited = appendLimited(stderr, value, maxLogBytes);
     stderr = limited.text;
@@ -146,6 +156,25 @@ export async function runValidationCommand({ repo, runDir, id, command, timeoutM
       resolve(cancelled ? 130 : timedOut ? 124 : code);
     });
   });
+
+  if (stdoutRedactor) {
+    const tail = stdoutRedactor.flush();
+    if (tail) {
+      const limited = appendLimited(stdout, tail, maxLogBytes);
+      stdout = limited.text;
+      stdoutTruncated = stdoutTruncated || limited.truncated;
+      process.stdout.write(tail);
+    }
+  }
+  if (stderrRedactor) {
+    const tail = stderrRedactor.flush();
+    if (tail) {
+      const limited = appendLimited(stderr, tail, maxLogBytes);
+      stderr = limited.text;
+      stderrTruncated = stderrTruncated || limited.truncated;
+      process.stderr.write(tail);
+    }
+  }
 
   const finishedAt = new Date();
   await writeText(stdoutPath, stdout);
