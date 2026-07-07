@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { writeText } from './fs-utils.js';
 
-const SECRET_PATTERNS = [
+export const SECRET_PATTERNS = [
   {
     id: 'private-key',
     pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/
@@ -18,7 +18,7 @@ const SECRET_PATTERNS = [
   }
 ];
 
-const RISKY_FILE_PATTERNS = [
+export const RISKY_FILE_PATTERNS = [
   {
     id: 'environment-file',
     pattern: /(^|\/)\.env(\.|$)/
@@ -104,7 +104,7 @@ function uniqueByPath(entries) {
   return result;
 }
 
-function detectRiskyFiles(files) {
+export function detectRiskyFiles(files) {
   const findings = [];
   for (const file of files) {
     for (const rule of RISKY_FILE_PATTERNS) {
