@@ -25,6 +25,7 @@
 | B1 | supervisor decision fixture (무효 입력→human review 안전붕괴 고정) | 직접 |
 | B2 | provider contract test (codex/claude/antigravity buildArgs·capabilities 스냅샷) | 하네스 dogfooding |
 | B3 | 품질 지표 집계 (`harness metrics`: 복구율·재실행률·human-review율·provider별 성공률·평균시간) | 직접(하네스 실패 후) |
+| C1 | runner God function(707줄) 분해 → `PipelineExecutor` 클래스(`src/pipeline-executor.js`). runner.js는 얇은 재노출 진입점. 단계 메서드로 분리(설정·워크스페이스·manifest·정책게이트·툴셋업·스텝루프·hermes결정·종료). dry-run manifest 동등성으로 동작 보존 검증 | 직접 |
 | C2 | pipeline-selection 작성 의도 신호 (review_only 오분류 수정) | 직접 |
 | C3 | CI (GitHub Actions, Node 20/24 매트릭스, check+test) | 하네스 dogfooding |
 | C4 | 보안 모듈 테스트 (trust.js / inspection.js) | 하네스 dogfooding |
@@ -33,8 +34,7 @@
 
 | ID | 작업 | 우선순위 / 비고 |
 |----|------|-----------------|
-| **C1** | **runner God function(약 680줄) 분해 → PipelineExecutor** | **최우선.** 큰 리팩터. B2 contract test + A2 try/finally가 안전망 |
-| B4 | eval을 준비도→품질 평가로 확장 (골든 시나리오 회귀) | 평가체계 완성 |
+| B4 | eval을 준비도→품질 평가로 확장 (골든 시나리오 회귀) | **최우선.** 평가체계 완성 |
 | B5 | 프롬프트/역할 품질 회귀 관리 (프롬프트 버전 + 골든 출력 비교) | B4 기반 |
 | — | **agent 실행 견고성** (신규) — dogfooding 중 `spawn claude ENOENT`로 coder 실패. agent 바이너리 해석·PATH·spawn 재시도 보강 | 실용적, 중간 우선순위 |
 | C2b | 정책 판정을 키워드 substring → inspection diff·명령 allowlist 기반으로 + detached HEAD 처리 (selection은 완료) | 중간 |
@@ -57,16 +57,17 @@
 
 ## 다음 세션 착수 순서
 
-1. **C1** — runner 분해 (안전망 위에서 단독 집중)
-2. **B4 → B5** — 평가체계 완성
-3. **agent 실행 견고성** — spawn 견고화
-4. 나머지(C2b·C4b·A2b) — 중간~낮은 우선순위
+1. **B4 → B5** — 평가체계 완성
+2. **agent 실행 견고성** — spawn 견고화
+3. 나머지(C2b·C4b·A2b) — 중간~낮은 우선순위
+
+> C1(runner 분해) 완료: `runPipeline` God function을 `PipelineExecutor`로 분해. 동작 보존은 dry-run manifest 동등성 diff로 확인(브랜치명 유래 필드 외 완전 동일).
 
 ## 평가 근거 (영역별 점수, 세션 시작 시점)
 
 | 영역 | 점수 | 핵심 |
 |------|:---:|------|
-| 실행 아키텍처 | 7.5 | provider 추상화·직교성·manifest 관측성 / God function(→C1)·정리 누수(→A2✅) |
+| 실행 아키텍처 | 7.5 | provider 추상화·직교성·manifest 관측성 / God function(→C1✅)·정리 누수(→A2✅) |
 | Hermes | 7.0 | 종료조건·이중 게이트 안전설계 / 비원자 쓰기(→A2✅)·키워드 정책(→C2b) |
 | 보안·견고성·테스트 | 6.0 | config검증·trust 문서 / redaction 결함(→A1✅)·보안모듈 무테스트(→C4✅) |
 | 문서·DX·성숙도 | 7.0 | 문서 정확성·자기 인식 / CI 부재(→C3✅) |
