@@ -609,7 +609,8 @@ export async function runPipeline(options, request) {
           agent: candidate,
           resources,
           runtime,
-          redact: harnessRuntime.redactText
+          redact: harnessRuntime.redactText,
+          redactStream: harnessRuntime.redactStream
         });
         result.agentVersion = candidateVersion;
         result.retryAttempt = retryAttempt;
