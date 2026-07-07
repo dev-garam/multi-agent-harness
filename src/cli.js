@@ -9,6 +9,7 @@ import { runHermesCommand } from './hermes.js';
 import { runPipeline } from './runner.js';
 import { showRun } from './show.js';
 import { runHarnessEval } from './eval.js';
+import { loadRunManifests, computeMetrics, formatMetrics } from './metrics.js';
 
 function usage() {
   return [
@@ -235,6 +236,12 @@ export async function main(args) {
       repo: parsed.options.repo || process.cwd(),
       json: parsed.options.json === true
     }));
+    return;
+  }
+
+  if (parsed.command === 'metrics') {
+    const metrics = computeMetrics(await loadRunManifests());
+    console.log(parsed.options.json === true ? JSON.stringify(metrics, null, 2) : formatMetrics(metrics));
     return;
   }
 
