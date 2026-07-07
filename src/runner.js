@@ -326,6 +326,9 @@ export async function runPipeline(options, request) {
   const supervisorConfig = supervisorConfigFromProjectConfig(projectConfig);
   const resources = resourceConfigFromProjectConfig(projectConfig);
   const harnessRuntime = createHarnessRuntime({ projectConfig });
+  // 저장 산출물(request.txt·manifest)에는 redact된 요청을 쓴다.
+  // 정책 판정·agent 전달용 prompt는 원문(raw)을 유지한다.
+  const redactedRequest = harnessRuntime.redactText(request, { surface: 'request' }).text;
   const toolConfigs = toolConfigsFromProjectConfig(projectConfig);
   const policy = directRunPolicyFromProjectConfig(projectConfig);
   const basePolicyDecision = evaluatePolicy({
@@ -368,7 +371,7 @@ export async function runPipeline(options, request) {
       schemaVersion: 1,
       runId,
       repo,
-      request,
+      request: redactedRequest,
       pipeline: selected.pipelineName,
       dryRun: Boolean(options.dryRun),
       workspace: {
@@ -383,7 +386,7 @@ export async function runPipeline(options, request) {
       status: 'failed',
       steps: []
     };
-    await writeText(path.join(runDir, 'request.txt'), request + '\n');
+    await writeText(path.join(runDir, 'request.txt'), redactedRequest + '\n');
     await saveManifest(runDir, failedManifest);
     throw error;
   }
@@ -411,7 +414,7 @@ export async function runPipeline(options, request) {
     runId,
     repo,
     executionRepo,
-    request,
+    request: redactedRequest,
     pipeline: selected.pipelineName,
     pipelineSelection,
     dryRun: Boolean(options.dryRun),
@@ -470,7 +473,7 @@ export async function runPipeline(options, request) {
   };
   appendRuntimeSummary(manifest, harnessRuntime);
   manifest.usageSummary = summarizeManifestUsage(manifest);
-  await writeText(path.join(runDir, 'request.txt'), request + '\n');
+  await writeText(path.join(runDir, 'request.txt'), redactedRequest + '\n');
   await saveManifest(runDir, manifest);
   harnessRuntime.hook('run:start', {
     runId,
