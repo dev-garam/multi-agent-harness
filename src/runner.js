@@ -221,7 +221,8 @@ async function runValidationStage({ repo, runDir, step, attempt, validationComma
         timeoutMs: validation.timeoutMs || resources.validationTimeoutMs,
         maxLogBytes: validation.maxLogBytes || resources.maxLogBytes,
         runtime,
-        redact: harnessRuntime.redactText
+        redact: harnessRuntime.redactText,
+        redactStream: harnessRuntime.redactStream
       });
       validationResult.retryAttempt = validationAttempt;
       const retryDecision = harnessRuntime.shouldRetryResult(validationResult, 'validation');
