@@ -515,7 +515,8 @@ export async function runPipeline(options, request) {
       tools: toolConfigs,
       phase: 'setup',
       runtime,
-      redact: harnessRuntime.redactText
+      redact: harnessRuntime.redactText,
+      redactStream: harnessRuntime.redactStream
     });
     manifest.tools.lifecycle.push(...setupResults);
     harnessRuntime.state.counters.toolSetups += setupResults.filter((result) => result.status !== 'skipped').length;
@@ -558,7 +559,8 @@ export async function runPipeline(options, request) {
       tools: toolConfigs,
       phase: 'teardown',
       runtime,
-      redact: harnessRuntime.redactText
+      redact: harnessRuntime.redactText,
+      redactStream: harnessRuntime.redactStream
     });
     manifest.tools.lifecycle.push(...teardownResults);
     harnessRuntime.state.counters.toolTeardowns += teardownResults.filter((result) => result.status !== 'skipped').length;
