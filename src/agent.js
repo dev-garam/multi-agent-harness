@@ -49,6 +49,18 @@ const defaultProviders = {
     buildArgs({ step, prompt }) {
       const args = ['-p', prompt, '--output-format', 'text'];
 
+      // Map the harness sandbox model onto Claude Code permission flags:
+      // write-enabled steps (e.g. coder) may edit files and run package/build
+      // commands, while read-only steps keep headless defaults (writes denied).
+      if (step.sandbox === 'workspace-write') {
+        args.push(
+          '--permission-mode',
+          'acceptEdits',
+          '--allowedTools',
+          'Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(mkdir:*),Bash(touch:*),Bash(cp:*),Bash(mv:*)'
+        );
+      }
+
       if (step.model) {
         args.push('--model', step.model);
       }
