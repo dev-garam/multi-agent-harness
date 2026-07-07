@@ -49,4 +49,21 @@ const review = selectPipeline({
 });
 assert.equal(review.selected, 'review_only');
 
+// 작성 의도가 있으면 리뷰 키워드('inspect')가 섞여도 review_only 로 가지 않는다.
+// (dogfooding에서 "inspection 테스트 작성"이 review_only 로 오분류되던 문제)
+const writeWithReviewWord = selectPipeline({
+  request: 'inspection 보안 모듈 테스트를 작성한다',
+  requestedPipeline: 'auto',
+  harnessConfig
+});
+assert.notEqual(writeWithReviewWord.selected, 'review_only', 'write intent overrides review keyword');
+
+// 순수 리뷰 요청은 여전히 review_only 로 남는다.
+const pureReview = selectPipeline({
+  request: '코드를 검토만 해줘',
+  requestedPipeline: 'auto',
+  harnessConfig
+});
+assert.equal(pureReview.selected, 'review_only');
+
 console.log('pipeline selection tests passed');

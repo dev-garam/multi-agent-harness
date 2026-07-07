@@ -7,6 +7,23 @@ const REVIEW_KEYWORDS = [
   '확인만'
 ];
 
+// 작성/변경 의도 신호. 이 신호가 있으면 리뷰 키워드가 섞여 있어도
+// review_only(코드 미작성)로 분류하지 않는다. (예: "inspection 테스트를 작성"에서
+// 'inspect'가 매칭되어 작성 요청이 리뷰로 오분류되던 문제를 방지)
+const WRITE_KEYWORDS = [
+  'write',
+  'create',
+  'add',
+  'implement',
+  'generate',
+  'scaffold',
+  '작성',
+  '생성',
+  '추가',
+  '구현',
+  '만들'
+];
+
 const RISK_SIGNALS = [
   ['auth', 3],
   ['authentication', 3],
@@ -144,6 +161,7 @@ export function selectPipeline({ request = '', requestedPipeline = null, project
 
   const normalized = String(request || '').toLowerCase();
   const reviewSignals = REVIEW_KEYWORDS.filter((signal) => includesSignal(normalized, signal));
+  const writeSignals = WRITE_KEYWORDS.filter((signal) => includesSignal(normalized, signal));
   const risk = scoreSignals(normalized, RISK_SIGNALS);
   const complexity = scoreSignals(normalized, COMPLEXITY_SIGNALS);
   const simple = simpleSignals(normalized);
@@ -151,7 +169,7 @@ export function selectPipeline({ request = '', requestedPipeline = null, project
   let selected = configured.defaultPipeline;
   let reason = 'Selected default pipeline.';
 
-  if (reviewSignals.length > 0 && available.review_only) {
+  if (reviewSignals.length > 0 && writeSignals.length === 0 && available.review_only) {
     selected = 'review_only';
     reason = 'Request looks like review-only work.';
   } else if (risk.score >= configured.riskThreshold && available.safe_fix) {
