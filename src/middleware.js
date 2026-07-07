@@ -33,10 +33,34 @@ const DEFAULT_SECRET_PATTERNS = [
     pattern: /xox[baprs]-[A-Za-z0-9-]{20,}/g
   },
   {
+    id: 'aws-access-key',
+    pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g
+  },
+  {
+    id: 'google-api-key',
+    pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g
+  },
+  {
+    id: 'jwt',
+    pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g
+  },
+  {
+    id: 'bearer-token',
+    pattern: /\bBearer\s+[A-Za-z0-9._~+/-]{10,}=*/gi
+  },
+  {
+    id: 'generic-secret-assignment',
+    pattern: /\b(?:api[_-]?key|secret|token|password|passwd|access[_-]?key)\b\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{6,}["']?/gi
+  },
+  {
     id: 'private-key',
     pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g
   }
 ];
+
+// 스트림 redactor가 개행 없이 누적할 수 있는 최대 바이트(안전장치).
+// 완성된 줄 단위로 redact하되, 개행이 이 크기까지 없으면 강제로 비워 메모리를 보호한다.
+const DEFAULT_STREAM_MAX_CARRY_BYTES = 64 * 1024;
 
 function asPositiveNumber(value, fallback = null) {
   const number = Number(value);
@@ -57,7 +81,8 @@ function replacementFor(value, mode) {
 function normalizeRedactionConfig(projectConfig = {}) {
   const config = projectConfig.redaction || projectConfig.security?.redaction || {};
   return {
-    enabled: config.enabled === true,
+    // 안전 기본값: 명시적으로 false를 준 경우에만 비활성화한다(기본 ON).
+    enabled: config.enabled !== false,
     mode: config.mode || 'mask',
     patterns: Array.isArray(config.patterns) ? config.patterns : []
   };
@@ -185,6 +210,39 @@ function compilePattern(entry) {
   }
 }
 
+/**
+ * 스트림 청크마다 redact를 호출하면 secret이 청크 경계에서 쪼개져 누수된다.
+ * 이 redactor는 개행(줄) 경계를 기준으로, 완성된 줄만 redact해 emit하고 미완성
+ * 줄은 다음 청크로 이월(carry)한다. 대부분의 secret은 한 줄 안에 있으므로 경계
+ * 누수를 막는다. 개행 없이 maxCarryBytes까지 누적되면 메모리 보호를 위해 강제로
+ * 비운다. 스트림 종료 시 flush()로 잔여분을 마스킹한다.
+ */
+function createStreamRedactor(redactFn, { maxCarryBytes = DEFAULT_STREAM_MAX_CARRY_BYTES } = {}) {
+  let carry = '';
+  return {
+    push(chunk) {
+      carry += String(chunk ?? '');
+      const lastNewline = carry.lastIndexOf('\n');
+      if (lastNewline === -1) {
+        if (carry.length >= maxCarryBytes) {
+          const out = redactFn(carry).text;
+          carry = '';
+          return out;
+        }
+        return '';
+      }
+      const complete = carry.slice(0, lastNewline + 1);
+      carry = carry.slice(lastNewline + 1);
+      return redactFn(complete).text;
+    },
+    flush() {
+      const out = carry ? redactFn(carry).text : '';
+      carry = '';
+      return out;
+    }
+  };
+}
+
 export function createHarnessRuntime({ projectConfig = {} } = {}) {
   const startedAt = Date.now();
   const redaction = normalizeRedactionConfig(projectConfig);
@@ -208,7 +266,16 @@ export function createHarnessRuntime({ projectConfig = {} } = {}) {
     flags: {},
     values: {}
   };
-  const customPatterns = redaction.patterns.map(compilePattern).filter(Boolean);
+  const invalidPatterns = [];
+  const customPatterns = [];
+  for (const entry of redaction.patterns) {
+    const compiled = compilePattern(entry);
+    if (compiled) {
+      customPatterns.push(compiled);
+    } else {
+      invalidPatterns.push(entry);
+    }
+  }
   const patterns = [...DEFAULT_SECRET_PATTERNS, ...customPatterns];
 
   function recordEvent(type, detail = {}) {
@@ -224,6 +291,14 @@ export function createHarnessRuntime({ projectConfig = {} } = {}) {
 
   function hook(name, detail = {}) {
     return recordEvent(`hook:${name}`, detail);
+  }
+
+  // 무효 custom redaction 패턴은 조용히 버리지 않고 경고로 기록한다(잘못된 안전감 방지).
+  if (invalidPatterns.length > 0) {
+    recordEvent('redaction:invalid-pattern', {
+      count: invalidPatterns.length,
+      ids: invalidPatterns.map((entry) => entry?.id || 'custom')
+    });
   }
 
   function redactText(text, detail = {}) {
@@ -261,6 +336,11 @@ export function createHarnessRuntime({ projectConfig = {} } = {}) {
       redacted: findings.length > 0,
       findings
     };
+  }
+
+  // 스트림(stdout/stderr 청크)용 경계-안전 redactor. push/flush로 사용한다.
+  function redactStream(detail = {}, options = {}) {
+    return createStreamRedactor((chunk) => redactText(chunk, detail), options);
   }
 
   function trimStepOutput(text, detail = {}) {
@@ -371,6 +451,7 @@ export function createHarnessRuntime({ projectConfig = {} } = {}) {
     recordEvent,
     hook,
     redactText,
+    redactStream,
     trimStepOutput,
     trimPreviousOutputs,
     assertBudget,
