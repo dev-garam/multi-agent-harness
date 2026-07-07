@@ -5,6 +5,8 @@ import { ensureDir, harnessRoot, readText, timestampId, writeText } from './fs-u
 import { validateProjectConfig } from './config-validation.js';
 import { validationCommandsFromProjectConfig } from './validation.js';
 import { evaluatePolicy, policyFromProjectConfig } from './policy.js';
+import { selectPipeline } from './pipeline-selection.js';
+import { parseSupervisorDecision } from './supervisor.js';
 
 function check(id, status, message, detail = null) {
   return {
@@ -56,6 +58,12 @@ function recommendationsForChecks(checks) {
     }
     if (entry.id.startsWith('policy-case:') && entry.status === 'fail') {
       recommendations.push(`Review policy case expectation: ${entry.id}.`);
+    }
+    if (entry.id.startsWith('pipeline-case:') && entry.status === 'fail') {
+      recommendations.push(`Pipeline selection regressed: ${entry.id}. Check pipeline-selection signals.`);
+    }
+    if (entry.id.startsWith('supervisor-case:') && entry.status === 'fail') {
+      recommendations.push(`Supervisor decision regressed: ${entry.id}. Check supervisor parse/normalize.`);
     }
   }
   return [...new Set(recommendations)];
@@ -164,6 +172,77 @@ function addPolicyCaseChecks({ checks, spec, projectConfig }) {
   });
 }
 
+function addPipelineCaseChecks({ checks, spec, projectConfig, harnessConfig }) {
+  if (!Array.isArray(spec?.pipelineCases)) {
+    return;
+  }
+
+  spec.pipelineCases.forEach((pipelineCase, index) => {
+    const id = pipelineCase.id || `pipeline-${index + 1}`;
+    const selection = selectPipeline({
+      request: pipelineCase.request || '',
+      requestedPipeline: pipelineCase.requestedPipeline || null,
+      projectConfig,
+      harnessConfig
+    });
+    const expected = pipelineCase.expected || {};
+    const mismatches = [];
+
+    for (const key of ['selected', 'mode']) {
+      if (expected[key] !== undefined && selection[key] !== expected[key]) {
+        mismatches.push(`${key}: expected ${expected[key]}, got ${selection[key]}`);
+      }
+    }
+    if (expected.minComplexity !== undefined && !(selection.complexityScore >= expected.minComplexity)) {
+      mismatches.push(`complexityScore: expected >= ${expected.minComplexity}, got ${selection.complexityScore}`);
+    }
+    if (expected.minRisk !== undefined && !(selection.riskScore >= expected.minRisk)) {
+      mismatches.push(`riskScore: expected >= ${expected.minRisk}, got ${selection.riskScore}`);
+    }
+
+    checks.push(check(
+      `pipeline-case:${id}`,
+      mismatches.length === 0 ? 'pass' : 'fail',
+      mismatches.length === 0 ? 'pipeline selection matched expected result' : mismatches.join('; '),
+      {
+        request: pipelineCase.request || '',
+        requestedPipeline: pipelineCase.requestedPipeline || null,
+        expected,
+        selection
+      }
+    ));
+  });
+}
+
+function addSupervisorCaseChecks({ checks, spec }) {
+  if (!Array.isArray(spec?.supervisorCases)) {
+    return;
+  }
+
+  spec.supervisorCases.forEach((supervisorCase, index) => {
+    const id = supervisorCase.id || `supervisor-${index + 1}`;
+    const decision = parseSupervisorDecision(supervisorCase.output || '');
+    const expected = supervisorCase.expected || {};
+    const mismatches = [];
+
+    for (const key of ['valid', 'nextAction', 'status', 'targetStep']) {
+      if (expected[key] !== undefined && decision[key] !== expected[key]) {
+        mismatches.push(`${key}: expected ${expected[key]}, got ${decision[key]}`);
+      }
+    }
+
+    checks.push(check(
+      `supervisor-case:${id}`,
+      mismatches.length === 0 ? 'pass' : 'fail',
+      mismatches.length === 0 ? 'supervisor decision matched expected result' : mismatches.join('; '),
+      {
+        expected,
+        decision
+      }
+    ));
+  });
+}
+
 export async function runHarnessEval({ repo = process.cwd(), json = false } = {}) {
   const resolvedRepo = path.resolve(repo);
   const configPath = path.join(resolvedRepo, '.harness.json');
@@ -237,6 +316,8 @@ export async function runHarnessEval({ repo = process.cwd(), json = false } = {}
     const baseStatus = checks.some((entry) => entry.status === 'fail') ? 'failed' : 'passed';
     addExpectedChecks({ checks, spec: evalSpec.spec, baseScore, baseStatus });
     addPolicyCaseChecks({ checks, spec: evalSpec.spec, projectConfig });
+    addPipelineCaseChecks({ checks, spec: evalSpec.spec, projectConfig, harnessConfig });
+    addSupervisorCaseChecks({ checks, spec: evalSpec.spec });
   }
 
   const result = {

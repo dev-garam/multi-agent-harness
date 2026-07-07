@@ -29,5 +29,74 @@
         "requiresApproval": true
       }
     }
+  ],
+  "pipelineCases": [
+    {
+      "id": "simple-doc-quick-fix",
+      "request": "README 문구를 정리해줘",
+      "expected": {
+        "selected": "quick_fix",
+        "mode": "deterministic"
+      }
+    },
+    {
+      "id": "complex-code-fix",
+      "request": "pipeline runtime 정책 실행기 구현",
+      "expected": {
+        "selected": "code_fix",
+        "minComplexity": 3
+      }
+    },
+    {
+      "id": "risky-safe-fix",
+      "request": "인증 토큰 마이그레이션 수정",
+      "expected": {
+        "selected": "safe_fix",
+        "minRisk": 3
+      }
+    },
+    {
+      "id": "review-only",
+      "request": "이번 변경을 리뷰만 해줘",
+      "expected": {
+        "selected": "review_only"
+      }
+    },
+    {
+      "id": "explicit-request-wins",
+      "request": "README 수정",
+      "requestedPipeline": "safe_fix",
+      "expected": {
+        "selected": "safe_fix",
+        "mode": "explicit"
+      }
+    }
+  ],
+  "supervisorCases": [
+    {
+      "id": "valid-escalation",
+      "output": "reasoning about the failed run...\n```json\n{\"nextAction\":\"escalate_to_safe_fix\",\"status\":\"failed\"}\n```",
+      "expected": {
+        "valid": true,
+        "nextAction": "escalate_to_safe_fix",
+        "status": "failed"
+      }
+    },
+    {
+      "id": "unparseable-collapses-to-human-review",
+      "output": "the model rambled and never emitted a decision block",
+      "expected": {
+        "valid": false,
+        "nextAction": "request_human_review"
+      }
+    },
+    {
+      "id": "rerun-without-target-collapses",
+      "output": "```json\n{\"nextAction\":\"rerun_step\",\"status\":\"failed\"}\n```",
+      "expected": {
+        "valid": false,
+        "nextAction": "request_human_review"
+      }
+    }
   ]
 }

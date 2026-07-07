@@ -14,7 +14,7 @@
 
 ---
 
-## 진행 현황 (마지막 갱신: 2026-07-07)
+## 진행 현황 (마지막 갱신: 2026-07-08)
 
 ### ✅ 완료 (전부 main에 머지됨)
 
@@ -29,13 +29,13 @@
 | C2 | pipeline-selection 작성 의도 신호 (review_only 오분류 수정) | 직접 |
 | C3 | CI (GitHub Actions, Node 20/24 매트릭스, check+test) | 하네스 dogfooding |
 | C4 | 보안 모듈 테스트 (trust.js / inspection.js) | 하네스 dogfooding |
+| B4 | eval을 준비도→품질 평가로 확장. `.harness-eval.json`에 `pipelineCases`(파이프라인 선택)·`supervisorCases`(supervisor 결정 파싱·안전 붕괴) 골든 시나리오 추가. 결정론적 오프라인 비교(LLM 미실행)로 CI-safe. 회귀 시 status=failed + recommendation 노출 | 직접 |
 
 ### ⏳ 남음 (다음 세션)
 
 | ID | 작업 | 우선순위 / 비고 |
 |----|------|-----------------|
-| B4 | eval을 준비도→품질 평가로 확장 (골든 시나리오 회귀) | **최우선.** 평가체계 완성 |
-| B5 | 프롬프트/역할 품질 회귀 관리 (프롬프트 버전 + 골든 출력 비교) | B4 기반 |
+| B5 | 프롬프트/역할 품질 회귀 관리 (프롬프트 버전 + 골든 출력 비교) | **최우선.** B4 기반 |
 | — | **agent 실행 견고성** (신규) — dogfooding 중 `spawn claude ENOENT`로 coder 실패. agent 바이너리 해석·PATH·spawn 재시도 보강 | 실용적, 중간 우선순위 |
 | C2b | 정책 판정을 키워드 substring → inspection diff·명령 allowlist 기반으로 + detached HEAD 처리 (selection은 완료) | 중간 |
 | C4b | docker 하드닝 (non-root `--user`, review_only에서 repo `:ro`, `--read-only`) | 중간 |
