@@ -26,7 +26,7 @@ A (봉합)  ──병행──┐
 
 | ID | 항목 | 산출물 | 상태 |
 |----|------|--------|:---:|
-| A1 | **redaction 신뢰화** | 기본 ON + 청크 tail 이월 버퍼(스트림 경계 누수 제거) + `request.txt`/`manifest.json`/`changes.patch`/worktree 산출물에도 적용 + 패턴 확장(AWS/GCP/JWT/일반 `key=` 대입) + 무효 custom regex는 조용히 버리지 말고 config 경고 | Planned |
+| A1 | **redaction 신뢰화** | 기본 ON + 청크 tail 이월 버퍼(스트림 경계 누수 제거) + `request.txt`/`manifest.json`/`changes.patch`/worktree 산출물에도 적용 + 패턴 확장(AWS/GCP/JWT/일반 `key=` 대입) + 무효 custom regex는 조용히 버리지 말고 config 경고 | ✅ Done |
 | A2 | **원자적 영속성 + 정리 보장** | `write→fsync→rename` 패턴(`fs-utils.js writeText`), 큐 클레임은 rename 선점, 실행 전체를 `try/finally`로 감싸 `finalizeWorkspace`·`teardownTools`가 어떤 에러(budget 포함)에도 항상 실행 | Planned |
 
 근거: redaction은 `middleware.js:57-64,229-264`(기본 OFF), `validation.js:118-131`(청크별 redact), `manifest.js:9`·`runner.js:473`(산출물 미적용). 정리 누수는 `runner.js` budget 경로가 teardown을 건너뜀. 비원자 쓰기는 `fs-utils.js writeText`, `hermes-memory.js:45`(jsonl 전체 재작성).
@@ -35,7 +35,7 @@ A (봉합)  ──병행──┐
 
 | ID | 항목 | 목적 / 산출물 | 상태 |
 |----|------|--------------|:---:|
-| B1 | **Hermes decision fixture 회귀** | `(validation 결과 + config) → 기대 decision` 골든 케이스. "실패→safe_fix 승격 / 불필요 재실행 안 함 / 잘못된 decision JSON→human review 붕괴"를 고정. `supervisor.js`가 파싱·정규화 분리라 테스트 용이 | Planned |
+| B1 | **Hermes decision fixture 회귀** | `(validation 결과 + config) → 기대 decision` 골든 케이스. "실패→safe_fix 승격 / 불필요 재실행 안 함 / 잘못된 decision JSON→human review 붕괴"를 고정. `supervisor.js`가 파싱·정규화 분리라 테스트 용이 | ✅ Done |
 | B2 | **provider contract test** | codex/claude/antigravity adapter의 `buildArgs·capabilities·outputMode·sandbox 매핑`을 스냅샷 고정. adapter 변경 시 계약 누수 감지 | Planned |
 | B3 | **품질 지표 집계** | manifest에 이미 있는 데이터 집계 — 복구 성공률·불필요 재실행률·human review 전환률·validation 실패 후 최종 성공률·provider별 성공률·평균 비용/시간·decision accuracy(B1 fixture 대비 일치율). `harness metrics` 또는 eval 통합 | Planned |
 | B4 | **eval을 준비도→품질로 확장** | 현재 eval(config 유무 점검)에 골든 시나리오(알려진 입력→기대 pipeline 선택·decision·최종 상태)를 추가해 판단 품질 회귀를 감지 | Planned |
