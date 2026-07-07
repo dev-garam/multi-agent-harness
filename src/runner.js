@@ -568,6 +568,13 @@ export async function runPipeline(options, request) {
     return teardownResults;
   }
 
+  let workspaceFinalized = false;
+  async function ensureWorkspaceFinalized() {
+    if (workspaceFinalized) return;
+    workspaceFinalized = true;
+    manifest.workspace = await finalizeWorkspace({ workspace: manifest.workspace, runDir });
+  }
+
   async function runAgentWithRetry({ step, baseStep, prompt, promptPath, stepAgent, stepAgentVersion }) {
     const fallbackAgents = harnessRuntime.retry.fallbackAgents.map((agentConfig) => resolveAgentConfig({
       options: {},
@@ -658,6 +665,9 @@ export async function runPipeline(options, request) {
     return lastResult;
   }
 
+  // 스텝 실행부 전체를 try/finally로 감싸, budget 초과나 예외 등 어떤 경로로
+  // 빠져나가도 워크스페이스·툴 정리가 항상 실행되게 한다(정리 누수 방지).
+  try {
   while (stepIndex < selected.pipeline.steps.length) {
     const baseStep = selected.pipeline.steps[stepIndex];
 
@@ -933,10 +943,7 @@ export async function runPipeline(options, request) {
   manifest.finishedAt = new Date().toISOString();
   manifest.completedPipeline = selected.pipelineName;
   manifest.gitAfter = await gitSnapshot(executionRepo);
-  manifest.workspace = await finalizeWorkspace({
-    workspace: manifest.workspace,
-    runDir
-  });
+  await ensureWorkspaceFinalized();
   const teardownResults = await teardownTools();
   if (supervisorTerminalStatus === 'failed' || shouldStopAfterReporter || activeValidationFailures.length > 0) {
     manifest.status = 'failed';
@@ -966,5 +973,18 @@ export async function runPipeline(options, request) {
 
   if (activeValidationFailures.length > 0) {
     throw new Error(`Validation failed (${activeValidationFailures.length} command(s)). See ${runDir}`);
+  }
+  } finally {
+    // 어떤 경로로 빠져나가도(정상/throw/budget 초과) 정리를 보장한다. 둘 다 멱등.
+    try {
+      await teardownTools();
+    } catch (cleanupError) {
+      harnessRuntime.recordEvent('cleanup:teardown-error', { error: String(cleanupError) });
+    }
+    try {
+      await ensureWorkspaceFinalized();
+    } catch (cleanupError) {
+      harnessRuntime.recordEvent('cleanup:finalize-error', { error: String(cleanupError) });
+    }
   }
 }
