@@ -17,6 +17,7 @@
 - Hermes supervisor가 validation 결과를 읽고 재검증, 재실행, safe pipeline 승격, 사람 검토 요청을 결정합니다.
 - Hermes operator가 queue, approval, memory, feedback, promotion, report를 관리합니다.
 - `harness show`와 `harness watch`로 manifest를 사람이 읽기 좋게 확인합니다.
+- `harness metrics`로 전체 run을 집계해 복구율, 재실행률, human-review율, provider별 성공률, 평균 소요 시간을 확인합니다.
 - `harness clean`과 `harness clean --worktrees`로 오래된 run/worktree 산출물을 정리합니다.
 - 모든 run은 `runs/<runId>/manifest.json`, prompt, stdout/stderr, 최종 markdown report를 남깁니다.
 
@@ -118,6 +119,7 @@ harness eval [--repo <path>] [--json]
 harness init-project [--repo <path>] [--refresh] [--interactive] [--apply] [--agent-provider <provider>] [--agent-routing <targets>]
 harness install-ide-task --repo <path>
 harness watch [--interval <ms>] [--once] [--include-existing]
+harness metrics [--json]
 harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
 ```
 
@@ -144,6 +146,7 @@ harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
 - `init-project`: 대상 프로젝트를 읽어 `.harness.json` 기본 파일을 만들고 package scripts/git branch를 가능한 범위에서 자동 반영합니다.
 - `install-ide-task`: 대상 프로젝트의 `.vscode/tasks.json`에 `Harness: Run` 작업을 추가합니다.
 - `watch`: `runs/`의 manifest 변화를 관찰하며 run, step, validation, Hermes decision, 완료 상태를 터미널에 표시합니다.
+- `metrics`: `runs/`의 모든 manifest를 읽어 복구율, 재실행률, human-review율, provider별 성공률, 평균 소요 시간을 집계합니다. `--json`으로 기계 판독용 출력을 냅니다.
 - `clean`: 오래된 `runs/` 디렉터리를 `runs/.trash/`로 이동하거나, `--worktrees`로 isolated worktree를 정리합니다.
 
 ## 파이프라인
@@ -1086,13 +1089,15 @@ harness run --repo . --pipeline safe_fix "<사용자 요청>"
 npm run check
 ```
 
-Hermes controller 회귀 테스트:
+회귀 테스트:
 
 ```sh
 npm test
 ```
 
-`npm test`는 mock agent를 사용해 다음 경로를 검증합니다.
+`npm test`는 mock agent와 fixture를 사용해 19개 스위트를 실행합니다. Hermes controller 외에 config validation, provider contract, pipeline selection, policy gate, trust, inspection, usage, metrics, middleware, prompt cache 등 핵심 모듈을 함께 검증합니다.
+
+Hermes controller 스위트가 검증하는 대표 경로:
 
 - Hermes가 `rerun_step`으로 worker를 재실행
 - Hermes가 `run_validation`으로 validation만 재실행
@@ -1105,6 +1110,10 @@ dry-run smoke test:
 ```sh
 node ./bin/harness run --repo . --pipeline safe_fix --dry-run "Hermes controller smoke test"
 ```
+
+### CI
+
+`.github/workflows/ci.yml`이 `main` push와 모든 pull request에서 Node 20/24 매트릭스로 `npm run check`와 `npm test`를 실행합니다.
 
 ## Showcase Demo
 
