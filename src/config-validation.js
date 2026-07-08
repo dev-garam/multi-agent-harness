@@ -536,7 +536,7 @@ export function validateProjectConfig(projectConfig = {}, { harnessConfig = null
           validateBoolean(policy[key], `policy.${key}`, issues);
         }
       }
-      for (const key of ['protectedBranches', 'requireApprovalFor']) {
+      for (const key of ['protectedBranches', 'requireApprovalFor', 'approvalRiskRuleIds', 'destructiveCommandPatterns', 'allowedCommands']) {
         if (policy[key] !== undefined) {
           validateStringArray(policy[key], `policy.${key}`, issues);
         }
