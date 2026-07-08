@@ -348,7 +348,8 @@ export class PipelineExecutor {
     this.executionRepo = this.workspace.executionRepo;
     this.runtime = runtimeRunnerFromOptions(this.options, this.projectConfig, {
       repo: this.executionRepo,
-      runDir: this.runDir
+      runDir: this.runDir,
+      reviewOnly: this.selected.pipelineName === 'review_only'
     });
     if (!this.options.dryRun) {
       assertRuntimeRunnerAvailable(this.runtime);

@@ -151,11 +151,18 @@ export function runtimeRunnerFromOptions(options = {}, projectConfig = {}, conte
     throw new Error('Docker runner network must be one of: default, none, host.');
   }
 
+  const repo = context.repo ? path.resolve(context.repo) : null;
+  const reviewOnly = context.reviewOnly === true;
+  const hardening = dockerHardening({ configuredObject, dockerConfig, reviewOnly });
+
   return {
     mode: 'docker',
     description: `docker image ${image}`,
     image,
     network,
+    repo,
+    reviewOnly,
+    hardening,
     envAllowlist: asArray(configuredObject.envAllowlist || dockerConfig.envAllowlist),
     mounts: uniqueAbsolutePaths([
       context.repo,
@@ -163,6 +170,29 @@ export function runtimeRunnerFromOptions(options = {}, projectConfig = {}, conte
       ...asArray(configuredObject.mounts || dockerConfig.mounts)
     ])
   };
+}
+
+// 컨테이너 하드닝 정책을 설정 + 파이프라인 맥락에서 도출한다.
+// - user: 기본 host uid:gid(바인드마운트 소유권 정합). "root"/false로 옵트아웃, 문자열로 지정 가능.
+// - readOnlyRootfs / repoReadOnly: review_only는 쓰기가 없어 기본 잠금.
+//   일반 파이프라인은 코드 편집이 필요하므로 기본 해제(명시 설정이 항상 우선).
+function dockerHardening({ configuredObject, dockerConfig, reviewOnly }) {
+  const explicit = { ...dockerConfig, ...configuredObject };
+
+  let user = null;
+  const userSetting = explicit.user;
+  if (userSetting === false || userSetting === 'root') {
+    user = null;
+  } else if (typeof userSetting === 'string' && userSetting.trim()) {
+    user = userSetting.trim();
+  } else if (typeof process.getuid === 'function' && typeof process.getgid === 'function') {
+    user = `${process.getuid()}:${process.getgid()}`;
+  }
+
+  const readOnlyRootfs = typeof explicit.readOnly === 'boolean' ? explicit.readOnly : reviewOnly;
+  const repoReadOnly = typeof explicit.repoReadOnly === 'boolean' ? explicit.repoReadOnly : reviewOnly;
+
+  return { user, readOnlyRootfs, repoReadOnly };
 }
 
 export function runtimeRunnerContract(runtime) {
@@ -176,6 +206,7 @@ export function runtimeRunnerContract(runtime) {
     };
   }
 
+  const hardening = runtime.hardening || {};
   return {
     mode: 'docker',
     processIsolation: 'container',
@@ -184,6 +215,9 @@ export function runtimeRunnerContract(runtime) {
     network: runtime.network || 'default',
     mounts: runtime.mounts || [],
     envAllowlist: runtime.envAllowlist || [],
+    user: hardening.user || 'container default (root)',
+    readOnlyRootfs: hardening.readOnlyRootfs === true,
+    repoReadOnly: hardening.repoReadOnly === true,
     shell: 'container sh -lc for shell commands'
   };
 }
@@ -206,13 +240,23 @@ export function assertRuntimeRunnerAvailable(runtime) {
 
 export function dockerCommandArgs(runtime, { command, args = [], cwd, envAllowlist = null }) {
   const dockerArgs = ['run', '--rm'];
+  const hardening = runtime.hardening || {};
+
+  if (hardening.user) {
+    dockerArgs.push('--user', hardening.user);
+  }
+  if (hardening.readOnlyRootfs) {
+    // rootfs를 읽기전용으로 잠그되, 도구가 쓰는 스크래치 공간은 tmpfs로 제공.
+    dockerArgs.push('--read-only', '--tmpfs', '/tmp');
+  }
 
   if (runtime.network && runtime.network !== 'default') {
     dockerArgs.push('--network', runtime.network);
   }
 
   for (const mount of runtime.mounts || []) {
-    dockerArgs.push('--volume', `${mount}:${mount}`);
+    const readOnly = hardening.repoReadOnly && runtime.repo && mount === runtime.repo;
+    dockerArgs.push('--volume', readOnly ? `${mount}:${mount}:ro` : `${mount}:${mount}`);
   }
 
   for (const key of envAllowlist || runtime.envAllowlist || []) {

@@ -122,8 +122,23 @@ function validateRunner(value, path, issues) {
   if (value.mounts !== undefined) {
     validateStringArray(value.mounts, `${path}.mounts`, issues);
   }
+  validateDockerHardening(value, path, issues);
   if (value.docker !== undefined) {
     validateDockerRunner(value.docker, `${path}.docker`, issues);
+  }
+}
+
+// user / readOnly / repoReadOnly 하드닝 필드 검증 (runner·docker 양쪽 공용).
+function validateDockerHardening(value, path, issues) {
+  if (value.user !== undefined
+    && value.user !== false
+    && !isNonEmptyString(value.user)) {
+    issues.push(issue('error', `${path}.user`, 'must be a "uid:gid"/user string, or false'));
+  }
+  for (const key of ['readOnly', 'repoReadOnly']) {
+    if (value[key] !== undefined && typeof value[key] !== 'boolean') {
+      issues.push(issue('error', `${path}.${key}`, 'must be a boolean'));
+    }
   }
 }
 
@@ -144,6 +159,7 @@ function validateDockerRunner(value, path, issues) {
   if (value.mounts !== undefined) {
     validateStringArray(value.mounts, `${path}.mounts`, issues);
   }
+  validateDockerHardening(value, path, issues);
 }
 
 function validateValidationCommand(entry, index, issues) {

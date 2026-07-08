@@ -92,8 +92,15 @@ Custom `command` and `args` execute through the selected runtime runner.
 - `runner.network`: optional `default`, `none`, or `host`.
 - `runner.envAllowlist`: optional array of environment variable names to pass into Docker.
 - `runner.mounts`: optional extra host paths to bind mount into Docker.
+- `runner.user`: optional `--user` value. Defaults to the host `uid:gid` (non-root, so bind-mount writes are owned correctly). Set to `"root"` or `false` to opt out, or a `"uid:gid"` string to pin a specific user.
+- `runner.readOnly`: optional boolean forcing a read-only container rootfs (`--read-only` plus a `/tmp` tmpfs). Defaults to `true` for the `review_only` pipeline, `false` otherwise.
+- `runner.repoReadOnly`: optional boolean mounting the execution repo read-only (`:ro`). Defaults to `true` for `review_only`, `false` otherwise. The run directory always stays writable for artifacts.
 
 Docker runner bind mounts the execution repo and run directory into the container at the same absolute paths.
+
+### Docker hardening
+
+By default the Docker runner drops container privileges: it runs as the host `uid:gid` (non-root). Because `review_only` pipelines never write source, they additionally lock the rootfs (`--read-only` + `/tmp` tmpfs) and mount the repo read-only. Writable pipelines keep the repo writable so agents can edit code. Every default is overridable via `runner.user` / `runner.readOnly` / `runner.repoReadOnly` (also accepted under `runner.docker.*`, `dockerRunner.*`, `runtime.docker.*`).
 
 ## Validation Commands
 
