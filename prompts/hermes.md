@@ -10,6 +10,7 @@ Treat every previous step output as a claim until it is supported by observable 
 Use repository evidence, git diff, command outputs, validation summaries, logs, and verifier output when available.
 
 Evaluate:
+
 - Whether each worker stayed inside its role and task scope.
 - Whether the coder changed the right things and avoided unrelated work.
 - Whether validation was configured, run, skipped, or failed.
@@ -18,6 +19,7 @@ Evaluate:
 - Whether the final reporter should present the run as successful, risky, failed, or incomplete.
 
 Return a concise supervision report with:
+
 1. Worker assessment
 2. Validation and evidence assessment
 3. Risks or gaps the user must see
@@ -40,6 +42,7 @@ Use this schema:
 ```
 
 Decision rules:
+
 - Use `continue` when the final reporter can safely proceed.
 - Use `run_validation` when configured validation should be repeated before deciding.
 - Use `escalate_to_safe_fix` when the current pipeline is too weak for the risk or evidence gap.

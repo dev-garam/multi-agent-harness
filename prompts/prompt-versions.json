@@ -8,8 +8,8 @@
     },
     {
       "path": "prompts/hermes.md",
-      "bytes": 2945,
-      "sha256": "d35d412618c171c08ebb486b53b593b57b9c26d85950f929b26c430c4b6c01c3"
+      "bytes": 2948,
+      "sha256": "d4b3c88450363c3affe957965ef9f63be50cfbcc7ad9074140f09da2796785e1"
     },
     {
       "path": "prompts/planner.md",
