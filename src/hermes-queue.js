@@ -48,6 +48,30 @@ export async function listTasks(status) {
   return tasks.sort((left, right) => String(left.createdAt).localeCompare(String(right.createdAt)));
 }
 
+// A2b: pending 작업을 원자적 rename으로 선점한다. rename은 원자적이라 동시 tick
+// 둘이 같은 후보를 잡아도 하나만 성공하고, 늦은 쪽은 ENOENT를 받아 다음 후보로
+// 넘어간다. 반환된 task는 이미 running 디렉터리로 옮겨진 상태(내용은 그대로).
+// 선점에 성공한 후보가 없으면 null.
+export async function claimPendingTask() {
+  await ensureQueueDirs();
+  const pending = await listTasks('pending');
+  for (const candidate of pending) {
+    const from = taskPath('pending', candidate.taskId);
+    const to = taskPath('running', candidate.taskId);
+    try {
+      await rename(from, to);
+      return { task: candidate, runningPath: to };
+    } catch (error) {
+      if (error && error.code === 'ENOENT') {
+        // 다른 tick이 먼저 선점함 → 다음 후보 시도.
+        continue;
+      }
+      throw error;
+    }
+  }
+  return null;
+}
+
 function taskSummary(task) {
   return `${task.taskId} ${task.status} ${task.pipeline} repo=${task.repo} request="${task.request}"`;
 }
