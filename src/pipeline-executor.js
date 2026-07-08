@@ -272,6 +272,8 @@ export class PipelineExecutor {
     this.redactedRequest = this.harnessRuntime.redactText(this.request, { surface: 'request' }).text;
     this.toolConfigs = toolConfigsFromProjectConfig(this.projectConfig);
     this.policy = directRunPolicyFromProjectConfig(this.projectConfig);
+    // C2b 하드 블록(옵트인): 실제 diff가 승인을 요구하면 런을 완료로 진행시키지 않는다.
+    this.blockOnChangeRisk = policyFromProjectConfig(this.projectConfig).blockOnChangeRisk === true;
     const basePolicyDecision = evaluatePolicy({
       request: this.request,
       policy: this.policy,
@@ -734,12 +736,46 @@ export class PipelineExecutor {
     // manifest·supervisor 컨텍스트에 노출한다.
     const changeRisk = evaluateChangeRisk({ inspection: result, policy: policyFromProjectConfig(this.projectConfig) });
     result.policyAssessment = changeRisk;
+    // 하드 블록 게이트가 참조할 최신 변경 위험 판정을 보관.
+    this.changeRiskAssessment = { step: step.id, ...changeRisk };
     await appendManifestStep(runDir, manifest, result);
 
     const assessmentLine = changeRisk.requiresApproval
       ? `policyAssessment: requires human approval\n${changeRisk.reasons.map((reason) => `- ${reason}`).join('\n')}`
       : 'policyAssessment: no additional approval required';
     return `${this.previousOutputs}\n\n## inspection:${result.id}\n${inspectionSummary(result)}\n${assessmentLine}`;
+  }
+
+  // C2b 하드 블록: inspection이 실제 diff에서 승인 필요를 판정했고, 옵트인
+  // (policy.blockOnChangeRisk)이며, 명시 승인(--policy-approved)이 없고 dry-run이
+  // 아니면 런을 차단한다. 하네스는 자동 커밋/머지하지 않으므로 '차단'은 남은
+  // 스텝을 멈추고 런을 실패로 종료해 완료 신호를 주지 않는 것을 뜻한다. 격리
+  // 모드의 변경은 changes.patch로 보존되어 검토 가능하다.
+  async #enforceChangeRiskGate({ step }) {
+    const assessment = this.changeRiskAssessment;
+    if (!assessment?.requiresApproval) {
+      return;
+    }
+    if (this.options.dryRun || this.options.policyApproved || !this.blockOnChangeRisk) {
+      return;
+    }
+
+    const reasonText = assessment.reasons.join('; ');
+    this.manifest.finishedAt = new Date().toISOString();
+    this.manifest.status = 'failed';
+    this.manifest.failureReason = `Change-risk policy blocked the run after ${step.id}: ${reasonText}`;
+    this.manifest.policyBlock = { kind: 'change-risk', step: step.id, reasons: assessment.reasons };
+    this.manifest.workspace = await finalizeWorkspace({
+      workspace: this.manifest.workspace,
+      runDir: this.runDir
+    });
+    await this.#teardownTools();
+    await this.#saveRuntimeManifest();
+    const reviewTarget = this.manifest.workspace?.patchPath || this.runDir;
+    throw new Error(
+      `Policy blocked this run: risky change detected after ${step.id} (${reasonText}). `
+      + `Review ${reviewTarget}, then re-run with --policy-approved to proceed.`
+    );
   }
 
   async #executeSteps() {
@@ -864,6 +900,7 @@ export class PipelineExecutor {
           stepId: baseStep.id,
           stage: 'inspection'
         });
+        await this.#enforceChangeRiskGate({ step: baseStep });
       }
 
       if (baseStep.id === HERMES_STEP_ID && existsSync(result.finalPath)) {
