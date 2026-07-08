@@ -8,7 +8,7 @@ import { renderPrompt } from './prompt.js';
 import { runValidationCommand, validationCommandsFromProjectConfig } from './validation.js';
 import { trustBoundarySummary } from './trust.js';
 import { inspectChanges, inspectionSummary } from './inspection.js';
-import { evaluatePolicy, evaluateProtectedBranchPolicy, policyFromProjectConfig } from './policy.js';
+import { evaluateChangeRisk, evaluatePolicy, evaluateProtectedBranchPolicy, policyFromProjectConfig } from './policy.js';
 import { finalizeWorkspace, prepareWorkspace, workspaceModeFromOptions } from './workspace.js';
 import { parseReporterSummary } from './reporter-summary.js';
 import { appendSupervisorInstructions, parseSupervisorDecision } from './supervisor.js';
@@ -729,9 +729,17 @@ export class PipelineExecutor {
       id: inspectionId,
       baselineStatusShort: manifest.git?.statusShort || ''
     });
+    // C2b: 실제 diff에 근거해 승인 필요 여부를 판정(위험 경로 변경·secret 노출).
+    // 키워드 텍스트가 아니라 변경 자체를 본다. 추가만 하며 제어 흐름은 바꾸지 않고
+    // manifest·supervisor 컨텍스트에 노출한다.
+    const changeRisk = evaluateChangeRisk({ inspection: result, policy: policyFromProjectConfig(this.projectConfig) });
+    result.policyAssessment = changeRisk;
     await appendManifestStep(runDir, manifest, result);
 
-    return `${this.previousOutputs}\n\n## inspection:${result.id}\n${inspectionSummary(result)}`;
+    const assessmentLine = changeRisk.requiresApproval
+      ? `policyAssessment: requires human approval\n${changeRisk.reasons.map((reason) => `- ${reason}`).join('\n')}`
+      : 'policyAssessment: no additional approval required';
+    return `${this.previousOutputs}\n\n## inspection:${result.id}\n${inspectionSummary(result)}\n${assessmentLine}`;
   }
 
   async #executeSteps() {

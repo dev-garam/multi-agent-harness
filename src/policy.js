@@ -67,6 +67,70 @@ export function classifyRequestRisk(request) {
   };
 }
 
+// 실제 명령에 대한 기본 파괴 패턴. 텍스트 키워드보다 정밀하게, 실행될 명령을
+// 대상으로 판단한다. config의 policy.destructiveCommandPatterns(문자열/정규식)로 확장 가능.
+const DEFAULT_DESTRUCTIVE_COMMANDS = [
+  /\brm\s+-[a-z]*r[a-z]*\b/i,
+  /\brm\s+-[a-z]*f[a-z]*\b/i,
+  /\bgit\s+push\b[^\n]*(--force\b|-f\b)/i,
+  /\bgit\s+reset\s+--hard\b/i,
+  /\bgit\s+clean\s+-[a-z]*f/i,
+  /\bdrop\s+(table|database)\b/i,
+  /\btruncate\s+table\b/i,
+  /\bdelete\s+from\b/i,
+  /\bmkfs\b/i,
+  /\bdd\s+if=/i
+];
+
+function matchCommandPattern(command, pattern) {
+  if (pattern instanceof RegExp) {
+    return pattern.test(command);
+  }
+  return String(command).toLowerCase().includes(String(pattern).toLowerCase());
+}
+
+// diff(inspection)와 명령 allowlist에 근거한 위험 판정. 요청 텍스트 키워드의
+// 보완재로, approval 요구를 '추가'만 한다(기존 게이트를 완화하지 않는다).
+export function evaluateChangeRisk({ inspection = null, commands = [], policy = defaultPolicy() } = {}) {
+  const reasons = [];
+
+  if (inspection && typeof inspection === 'object') {
+    const riskyFiles = Array.isArray(inspection.riskyFiles) ? inspection.riskyFiles : [];
+    const secretFindings = Array.isArray(inspection.secretFindings) ? inspection.secretFindings : [];
+    const gatedRuleIds = new Set(policy.approvalRiskRuleIds
+      || ['migration', 'security-sensitive-path', 'environment-file']);
+    for (const entry of riskyFiles) {
+      if (gatedRuleIds.has(entry.ruleId)) {
+        reasons.push(`change touches ${entry.ruleId}: ${entry.path}`);
+      }
+    }
+    if (secretFindings.length > 0) {
+      reasons.push(`potential secret in diff: ${secretFindings.map((finding) => finding.path).join(', ')}`);
+    }
+  }
+
+  const destructivePatterns = policy.destructiveCommandPatterns || DEFAULT_DESTRUCTIVE_COMMANDS;
+  const allowedCommands = (policy.allowedCommands || []).map((entry) => String(entry));
+  for (const raw of Array.isArray(commands) ? commands : [commands]) {
+    const command = String(raw || '').trim();
+    if (!command) {
+      continue;
+    }
+    const isAllowed = allowedCommands.some((entry) => command === entry || command.startsWith(`${entry} `));
+    if (isAllowed) {
+      continue;
+    }
+    if (destructivePatterns.some((pattern) => matchCommandPattern(command, pattern))) {
+      reasons.push(`destructive command not in allowlist: ${command}`);
+    }
+  }
+
+  return {
+    requiresApproval: reasons.length > 0,
+    reasons
+  };
+}
+
 export function evaluatePolicy({ request, policy = defaultPolicy(), mode = 'autonomous' }) {
   const risk = classifyRequestRisk(request);
   const approvalKeywords = policy.requireApprovalFor || [];
@@ -126,18 +190,31 @@ async function runCapture(command, args, { cwd }) {
 
 async function currentGitBranch(repo) {
   const result = await runCapture('git', ['branch', '--show-current'], { cwd: repo });
-  if (result.exitCode !== 0 || !result.stdout) {
+  if (result.exitCode === 0 && result.stdout) {
     return {
-      available: false,
+      available: true,
+      branch: result.stdout,
+      detached: false,
+      reason: null
+    };
+  }
+
+  // 브랜치명이 비었다: repo인데 detached HEAD인지, 아예 git work tree가 아닌지 구분.
+  const inside = await runCapture('git', ['rev-parse', '--is-inside-work-tree'], { cwd: repo });
+  if (inside.exitCode === 0 && inside.stdout === 'true') {
+    return {
+      available: true,
       branch: null,
-      reason: result.stderr || 'current git branch unavailable'
+      detached: true,
+      reason: 'HEAD is detached'
     };
   }
 
   return {
-    available: true,
-    branch: result.stdout,
-    reason: null
+    available: false,
+    branch: null,
+    detached: false,
+    reason: result.stderr || 'current git branch unavailable'
   };
 }
 
@@ -159,15 +236,22 @@ export function protectedBranchesFromConfig(config = {}, policy = defaultPolicy(
 export async function evaluateProtectedBranchPolicy({ repo, projectConfig = {}, policy = policyFromProjectConfig(projectConfig) }) {
   const protectedBranches = protectedBranchesFromConfig(projectConfig, policy);
   const git = await currentGitBranch(path.resolve(repo));
-  const protectedBranch = git.available && protectedBranches.includes(git.branch);
+  const onProtectedBranch = git.available && git.branch !== null && protectedBranches.includes(git.branch);
+  // detached HEAD는 어떤 브랜치인지 확인할 수 없어 보호 브랜치 여부를 판단 못 한다.
+  // 자율 실행을 허용하면 보호 브랜치 커밋 위에서 작업할 위험이 있으므로 fail-safe로 approval.
+  const detachedBlocked = git.available && git.detached === true;
+  const requiresApproval = onProtectedBranch || detachedBlocked;
 
   return {
-    allowed: !protectedBranch,
-    requiresApproval: protectedBranch,
-    reason: protectedBranch
+    allowed: !requiresApproval,
+    requiresApproval,
+    reason: onProtectedBranch
       ? `Policy requires human approval on protected branch: ${git.branch}.`
-      : 'Protected branch policy allows autonomous execution.',
+      : detachedBlocked
+        ? 'Policy requires human approval: HEAD is detached, cannot confirm the checkout is not a protected branch.'
+        : 'Protected branch policy allows autonomous execution.',
     branch: git.branch,
+    detached: git.detached === true,
     gitAvailable: git.available,
     gitReason: git.reason,
     protectedBranches

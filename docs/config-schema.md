@@ -271,13 +271,26 @@ When enabled, the harness may ask before adding helpful project config during fu
     "allowDestructiveCommands": false,
     "enforceApprovalForDirectRun": false,
     "protectedBranches": ["main", "production"],
-    "requireApprovalFor": ["auth", "payment", "database migration"]
+    "requireApprovalFor": ["auth", "payment", "database migration"],
+    "approvalRiskRuleIds": ["migration", "security-sensitive-path", "environment-file"],
+    "destructiveCommandPatterns": ["rm -rf", "git push --force"],
+    "allowedCommands": ["rm -rf build"]
   }
 }
 ```
 
 - Boolean fields must be boolean.
 - `protectedBranches` and `requireApprovalFor` must be arrays of strings.
+
+### Change-grounded policy (C2b)
+
+Beyond request-text keywords, the harness grounds approval in what actually changed. After each write step the inspection stage runs `evaluateChangeRisk`, which raises an approval requirement — recorded as `policyAssessment` on the inspection manifest step — when:
+
+- a changed file matches an `approvalRiskRuleIds` category (default: `migration`, `security-sensitive-path`, `environment-file`), or
+- a potential secret appears in the diff, or
+- a proposed command matches `destructiveCommandPatterns` (default covers `rm -r/-f`, `git push --force`, `git reset --hard`, `drop/truncate/delete` SQL, `mkfs`, `dd if=`) and is not in `allowedCommands`.
+
+This assessment is **additive**: it only ever adds approval requirements, never removes the existing text/branch gates. Protected-branch evaluation also fails safe on a **detached HEAD** — because the checkout cannot be confirmed to be off a protected branch, it requires human approval.
 
 ## Eval Spec
 
