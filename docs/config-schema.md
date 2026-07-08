@@ -296,6 +296,28 @@ Fixture repositories may include `.harness-eval.json`. This file is read by `har
         "requiresApproval": false
       }
     }
+  ],
+  "pipelineCases": [
+    {
+      "id": "review-only",
+      "request": "이번 변경을 리뷰만 해줘",
+      "expected": {
+        "selected": "review_only",
+        "mode": "deterministic",
+        "minComplexity": 0,
+        "minRisk": 0
+      }
+    }
+  ],
+  "supervisorCases": [
+    {
+      "id": "unparseable-collapses-to-human-review",
+      "output": "the model never emitted a decision block",
+      "expected": {
+        "valid": false,
+        "nextAction": "request_human_review"
+      }
+    }
   ]
 }
 ```
@@ -304,3 +326,7 @@ Fixture repositories may include `.harness-eval.json`. This file is read by `har
 - `expected.minScore` checks the readiness score lower bound.
 - `expected.checks` maps check ids to expected statuses.
 - `policyCases` runs deterministic policy decisions against the fixture config.
+- `pipelineCases` freezes pipeline selection as golden regression: `selected`/`mode` are matched exactly, `minComplexity`/`minRisk` assert score lower bounds. Optional `requestedPipeline` forces an explicit selection.
+- `supervisorCases` freezes supervisor decision parsing (`parseSupervisorDecision`) as golden regression: `output` is the raw model text, and `valid`/`nextAction`/`status`/`targetStep` are matched against the normalized decision — including safe collapse to `request_human_review` on unparseable or invalid output.
+
+`policyCases`, `pipelineCases`, and `supervisorCases` move eval beyond readiness checks into judgment-quality regression: they measure whether the harness's routing and supervision decisions still match known-good golden outputs.

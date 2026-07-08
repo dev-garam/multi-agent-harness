@@ -390,7 +390,7 @@ node ./bin/harness run --repo /path/to/project --agent claude "작업 요청"
 
 ### Eval Spec
 
-fixture repo에는 선택적으로 `.harness-eval.json`을 둘 수 있습니다. 이 파일은 `harness eval`이 단순 준비도 점검을 넘어서 기대 score, 개별 check status, policy decision을 검증하게 합니다.
+fixture repo에는 선택적으로 `.harness-eval.json`을 둘 수 있습니다. 이 파일은 `harness eval`이 단순 준비도 점검을 넘어서 기대 score, 개별 check status, 그리고 하네스의 **판단 품질**(정책·파이프라인 선택·supervisor 결정)을 골든 시나리오 회귀로 검증하게 합니다.
 
 ```json
 {
@@ -412,9 +412,29 @@ fixture repo에는 선택적으로 `.harness-eval.json`을 둘 수 있습니다.
         "requiresApproval": true
       }
     }
+  ],
+  "pipelineCases": [
+    {
+      "id": "review-only",
+      "request": "이번 변경을 리뷰만 해줘",
+      "expected": { "selected": "review_only" }
+    }
+  ],
+  "supervisorCases": [
+    {
+      "id": "unparseable-collapses-to-human-review",
+      "output": "모델이 결정 블록을 내지 않음",
+      "expected": { "valid": false, "nextAction": "request_human_review" }
+    }
   ]
 }
 ```
+
+- `policyCases` — 요청에 대한 정책 판정(`allowed`/`requiresApproval`)을 골든으로 고정.
+- `pipelineCases` — 파이프라인 자동 선택 결과(`selected`/`mode`, `minComplexity`/`minRisk`)를 고정. `requestedPipeline`으로 명시 선택도 검증.
+- `supervisorCases` — supervisor 결정 파싱(`parseSupervisorDecision`)을 고정. 파싱 불가·무효 입력이 항상 `request_human_review`로 안전 붕괴하는지 회귀로 검증.
+
+정책·파이프라인·supervisor 케이스는 eval을 "돌아갈 준비가 됐나"에서 "판단이 여전히 옳은가"로 확장합니다. 골든이 회귀하면 eval status가 `failed`가 되고 recommendation에 해당 케이스 id가 노출됩니다.
 
 ### Init Project 자동 감지
 
