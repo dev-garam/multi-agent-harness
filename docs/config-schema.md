@@ -292,6 +292,8 @@ Beyond request-text keywords, the harness grounds approval in what actually chan
 
 This assessment is **additive**: it only ever adds approval requirements, never removes the existing text/branch gates. Protected-branch evaluation also fails safe on a **detached HEAD** — because the checkout cannot be confirmed to be off a protected branch, it requires human approval.
 
+By default the assessment is **observational** — it is recorded as `policyAssessment` and surfaced to the supervisor, but does not stop the run. Set `policy.blockOnChangeRisk: true` to make it a **hard gate**: when the inspection of the real diff requires approval, the run is blocked (stopped and marked failed with `policyBlock` in the manifest) instead of completing. The harness never auto-commits or auto-merges, so a block simply withholds the success signal; in `worktree`/`patch` mode the risky diff is still preserved as `changes.patch` for review. Re-run with `--policy-approved` (or supply approval) to proceed.
+
 ## Eval Spec
 
 Fixture repositories may include `.harness-eval.json`. This file is read by `harness eval` and is not part of the runtime `.harness.json` contract.

@@ -531,7 +531,7 @@ export function validateProjectConfig(projectConfig = {}, { harnessConfig = null
     if (!isPlainObject(policy)) {
       issues.push(issue('error', 'policy', 'must be an object'));
     } else {
-      for (const key of ['allowAutonomousRun', 'allowEdits', 'allowDestructiveCommands', 'enforceApprovalForDirectRun']) {
+      for (const key of ['allowAutonomousRun', 'allowEdits', 'allowDestructiveCommands', 'enforceApprovalForDirectRun', 'blockOnChangeRisk']) {
         if (policy[key] !== undefined) {
           validateBoolean(policy[key], `policy.${key}`, issues);
         }
