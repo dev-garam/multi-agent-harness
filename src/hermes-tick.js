@@ -5,8 +5,8 @@ import { harnessRoot, writeText } from './fs-utils.js';
 import { readProjectHarnessConfig } from './hermes-config.js';
 import { createHermesReport } from './hermes-report.js';
 import {
+  claimPendingTask,
   ensureQueueDirs,
-  listTasks,
   taskPath
 } from './hermes-queue.js';
 import { formatNotificationSummary, notifyHermesEvent } from './notify.js';
@@ -71,8 +71,11 @@ async function runHarnessTask(task) {
 
 export async function runHermesTick() {
   await ensureQueueDirs();
-  const pending = await listTasks('pending');
-  if (pending.length === 0) {
+  // A2b: pending[0]를 원자적 rename으로 선점한다. 동시 tick이 이미 가져간
+  // 후보는 건너뛰고, 선점 가능한 게 없으면 idle. 선점 성공 시 task 파일은
+  // 이미 running 디렉터리에 있다.
+  const claimed = await claimPendingTask();
+  if (!claimed) {
     const result = {
       status: 'idle',
       message: 'No pending tasks.'
@@ -84,7 +87,8 @@ export async function runHermesTick() {
     };
   }
 
-  const task = pending[0];
+  const task = claimed.task;
+  const runningPath = claimed.runningPath;
   const projectConfig = await readProjectHarnessConfig(task.repo);
   const branchDecision = await evaluateProtectedBranchPolicy({
     repo: task.repo,
@@ -118,8 +122,9 @@ export async function runHermesTick() {
         requestedAt: new Date().toISOString()
       }
     };
-    await writeJson(taskPath('pending', task.taskId), approvalTask);
-    await rename(taskPath('pending', task.taskId), taskPath('approval_pending', task.taskId));
+    // 이미 선점되어 running에 있는 파일을 갱신 후 approval_pending으로 이동.
+    await writeJson(runningPath, approvalTask);
+    await rename(runningPath, taskPath('approval_pending', task.taskId));
     const result = {
       status: 'approval_pending',
       task: approvalTask
@@ -145,16 +150,14 @@ export async function runHermesTick() {
     };
   }
 
-  const pendingPath = taskPath('pending', task.taskId);
-  const runningPath = taskPath('running', task.taskId);
+  // 이미 running으로 선점됨. 상태/시각만 갱신해 running 파일에 기록.
   const runningTask = {
     ...task,
     status: 'running',
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
-  await writeJson(pendingPath, runningTask);
-  await rename(pendingPath, runningPath);
+  await writeJson(runningPath, runningTask);
 
   const harnessResult = await runHarnessTask(runningTask);
   const finishedStatus = harnessResult.exitCode === 0 ? 'done' : 'failed';
