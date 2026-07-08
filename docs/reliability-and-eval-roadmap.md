@@ -37,13 +37,16 @@
 | A2b | 큐 클레임 rename 원자적 선점(`claimPendingTask`). 동시 tick 이중 실행 방지 | 직접 |
 | — | metrics를 `harness --help` usage에 노출(누락 보강) | 직접 |
 
+| C2b+ | diff 위험 하드 블록: `policy.blockOnChangeRisk` 옵트인 시 inspection 후 런 차단(`#enforceChangeRiskGate`). `--policy-approved`로 우회, 기본 off로 하위 호환. e2e 테스트 | 직접 |
+
 ### ⏳ 남음 (후속)
 
 | ID | 작업 | 우선순위 / 비고 |
 |----|------|-----------------|
 | C4b+ | docker 하드닝의 **실제 컨테이너 런타임** end-to-end 검증(로직·인자조립만 테스트됨) | 중간 |
 | agent+ | agent spawn의 **실제 실행** end-to-end 검증 및 전이 오류(EAGAIN 등) 재시도 | 중간 |
-| C2b+ | diff 위험으로 런을 **하드 블록**(제어 흐름 차단)하는 라이브 게이트 — 현재는 관측·additive까지 | 중간 |
+
+> 자율(hermes) 경로에서 하드 블록된 런은 현재 failed로 처리된다. 이를 `approval_pending` 큐로 라우팅하는 것은 선택적 개선(현재도 안전한 결과).
 
 ---
 
