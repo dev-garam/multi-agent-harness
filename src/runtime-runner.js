@@ -1,8 +1,84 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { accessSync, constants, statSync } from 'node:fs';
 import path from 'node:path';
 
 const RUNNER_MODES = new Set(['local', 'docker']);
 const DOCKER_NETWORKS = new Set(['default', 'none', 'host']);
+
+function isExecutableFile(candidate) {
+  try {
+    if (!statSync(candidate).isFile()) {
+      return false;
+    }
+    accessSync(candidate, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// PATH가 최소한으로 설정된 환경(IDE/cron 등)에서도 agent 바이너리를 찾도록
+// 흔한 설치 위치를 PATH 뒤에 덧붙여 탐색한다.
+function commonBinDirs(env = process.env) {
+  const home = env.HOME || env.USERPROFILE || '';
+  return [
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+    '/usr/bin',
+    '/bin',
+    home && path.join(home, '.local', 'bin'),
+    home && path.join(home, '.npm-global', 'bin'),
+    home && path.join(home, '.volta', 'bin'),
+    home && path.join(home, 'bin')
+  ].filter(Boolean);
+}
+
+// command를 실행 가능한 절대 경로로 해석한다.
+// - 경로 구분자를 포함하면(명시 경로) 그대로 두되, 절대경로가 존재하지 않으면 null.
+// - bare 이름이면 PATH + 흔한 설치 위치에서 탐색해 절대경로를 돌려주고, 없으면 null.
+export function resolveCommandPath(command, env = process.env) {
+  if (!command || typeof command !== 'string') {
+    return null;
+  }
+  if (command.includes('/')) {
+    if (path.isAbsolute(command) && !isExecutableFile(command)) {
+      return null;
+    }
+    return command;
+  }
+
+  const searchDirs = [
+    ...(env.PATH ? env.PATH.split(path.delimiter) : []),
+    ...commonBinDirs(env)
+  ].filter(Boolean);
+
+  const seen = new Set();
+  for (const dir of searchDirs) {
+    if (seen.has(dir)) {
+      continue;
+    }
+    seen.add(dir);
+    const candidate = path.join(dir, command);
+    if (isExecutableFile(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+// 해석된 바이너리의 디렉터리를 자식 PATH 앞에 붙여, agent가 자기 subprocess를
+// 호출할 때도 같은 위치를 찾도록 한다.
+function withResolvedDirOnPath(env, resolvedCommand) {
+  if (!path.isAbsolute(resolvedCommand)) {
+    return env;
+  }
+  const dir = path.dirname(resolvedCommand);
+  const current = env.PATH ? env.PATH.split(path.delimiter) : [];
+  if (current.includes(dir)) {
+    return env;
+  }
+  return { ...env, PATH: [dir, ...current].join(path.delimiter) };
+}
 
 function asArray(value) {
   if (!value) {
@@ -155,9 +231,19 @@ export function dockerCommandArgs(runtime, { command, args = [], cwd, envAllowli
 
 export function spawnRuntimeCommand({ runtime, command, args = [], cwd, stdio = ['ignore', 'pipe', 'pipe'], env = null, envAllowlist = null }) {
   if (!runtime || runtime.mode === 'local') {
-    return spawn(command, args, {
+    const baseEnv = env || buildAllowedEnv(envAllowlist);
+    const resolved = resolveCommandPath(command, baseEnv);
+    if (resolved === null) {
+      // ENOENT를 자식 프로세스 error 이벤트로 늦게 흘리는 대신, 여기서
+      // 실행 가능한 메시지로 즉시 실패시킨다(호출부는 이미 try/catch로 처리).
+      throw new Error(
+        `Agent command "${command}" was not found on PATH or common install directories. ` +
+        'Install it, add its directory to PATH, or set agent.command to an absolute path.'
+      );
+    }
+    return spawn(resolved, args, {
       cwd,
-      env: env || buildAllowedEnv(envAllowlist),
+      env: withResolvedDirOnPath(baseEnv, resolved),
       stdio
     });
   }
