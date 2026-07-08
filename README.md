@@ -659,6 +659,8 @@ harness doctor --repo /path/to/project --agent codex
 
 `harness eval --repo <path>`는 `.harness.json` 준비도와 선택적 `.harness-eval.json` fixture 기대값을 점검합니다. 결과에는 score와 recommendations가 포함되며, JSON report는 `.harness/eval/`에 저장됩니다.
 
+eval은 준비도뿐 아니라 하네스 자신의 **프롬프트/역할 품질 회귀**도 점검합니다(`prompt-versions` check). `prompts/*.md`의 지문을 커밋된 `prompts/prompt-versions.json` 골든과 비교해, 의도치 않은 프롬프트 드리프트가 있으면 eval을 `failed`로 만듭니다. 프롬프트를 의도적으로 수정했다면 `node scripts/update-prompt-versions.mjs`로 골든을 갱신하고 diff를 검토해 커밋합니다.
+
 ### Validation 설정
 
 `buildCommand`, `testCommand`, `validationCommands`는 validation 단계에서 사용됩니다. 실행 순서는 다음과 같습니다.

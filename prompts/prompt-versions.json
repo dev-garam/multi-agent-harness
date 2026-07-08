@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "prompts": [
+    {
+      "path": "prompts/coder.md",
+      "bytes": 864,
+      "sha256": "31dc5f1a5e07fbd10a5278d0475b4907cf87c685dfc07e12c17929a0bbd89108"
+    },
+    {
+      "path": "prompts/hermes.md",
+      "bytes": 2945,
+      "sha256": "d35d412618c171c08ebb486b53b593b57b9c26d85950f929b26c430c4b6c01c3"
+    },
+    {
+      "path": "prompts/planner.md",
+      "bytes": 787,
+      "sha256": "9de50a127622dd449228770b35f960591c72fbe53d51f1649857eed29e319f25"
+    },
+    {
+      "path": "prompts/qa.md",
+      "bytes": 807,
+      "sha256": "8349f04b13c75437f8271ea6d8d887c582c6c65385c9474df51b900ba188270e"
+    },
+    {
+      "path": "prompts/reporter.md",
+      "bytes": 1852,
+      "sha256": "49d0cda3191b8609474e13e6046e7bae17a699421a0de9b0f441241f70fb9bc0"
+    },
+    {
+      "path": "prompts/reviewer.md",
+      "bytes": 782,
+      "sha256": "29f2ebe292b0c2f35b68117bcb66bb33cef54758efdf110d7230a9345c4e3ef4"
+    },
+    {
+      "path": "prompts/verifier.md",
+      "bytes": 1408,
+      "sha256": "30f49aeb43dbc77399e4f63306463884e92f2b6fd1b401380163e50fec95a35f"
+    }
+  ]
+}

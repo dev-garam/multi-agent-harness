@@ -7,6 +7,7 @@ import { validationCommandsFromProjectConfig } from './validation.js';
 import { evaluatePolicy, policyFromProjectConfig } from './policy.js';
 import { selectPipeline } from './pipeline-selection.js';
 import { parseSupervisorDecision } from './supervisor.js';
+import { computePromptRegistry, diffPromptRegistry, loadPromptVersionGolden } from './prompt-registry.js';
 
 function check(id, status, message, detail = null) {
   return {
@@ -51,6 +52,9 @@ function recommendationsForChecks(checks) {
   }
   if (byId.get('budget-policy')?.status === 'warn') {
     recommendations.push('Add budget limits for agent steps, provider calls, validation commands, and runtime.');
+  }
+  if (byId.get('prompt-versions')?.status === 'fail') {
+    recommendations.push('Prompt drift detected. If intentional, run `node scripts/update-prompt-versions.mjs` and commit; otherwise revert the prompt change.');
   }
   for (const entry of checks) {
     if (entry.id.startsWith('expected-') && entry.status === 'fail') {
@@ -302,6 +306,23 @@ export async function runHarnessEval({ repo = process.cwd(), json = false } = {}
     projectConfig.budget ? 'pass' : 'warn',
     projectConfig.budget ? 'budget policy configured' : 'no budget policy configured'
   ));
+
+  // B5: 프롬프트/역할 품질 회귀. 하네스 프롬프트 지문을 커밋된 골든과 비교해
+  // 의도치 않은 프롬프트 드리프트를 품질 리포트에 노출한다.
+  const promptGolden = await loadPromptVersionGolden();
+  if (!promptGolden) {
+    checks.push(check('prompt-versions', 'warn', 'prompt version golden not found (run scripts/update-prompt-versions.mjs)'));
+  } else {
+    const promptDrift = diffPromptRegistry(promptGolden, await computePromptRegistry());
+    checks.push(check(
+      'prompt-versions',
+      promptDrift.drift ? 'fail' : 'pass',
+      promptDrift.drift
+        ? `prompt drift: changed=[${promptDrift.changed.join(', ')}] added=[${promptDrift.added.join(', ')}] removed=[${promptDrift.removed.join(', ')}]`
+        : 'prompts match committed version golden',
+      promptDrift
+    ));
+  }
 
   if (evalSpec.error) {
     checks.push(check('eval-spec-parse', 'fail', 'failed to parse .harness-eval.json', {
