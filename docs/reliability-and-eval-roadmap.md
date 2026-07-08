@@ -30,16 +30,20 @@
 | C3 | CI (GitHub Actions, Node 20/24 매트릭스, check+test) | 하네스 dogfooding |
 | C4 | 보안 모듈 테스트 (trust.js / inspection.js) | 하네스 dogfooding |
 | B4 | eval을 준비도→품질 평가로 확장. `.harness-eval.json`에 `pipelineCases`(파이프라인 선택)·`supervisorCases`(supervisor 결정 파싱·안전 붕괴) 골든 시나리오 추가. 결정론적 오프라인 비교(LLM 미실행)로 CI-safe. 회귀 시 status=failed + recommendation 노출 | 직접 |
+| B5 | 프롬프트/역할 품질 회귀. `src/prompt-registry.js`로 `prompts/*.md` 지문 스냅샷(버전) + 커밋된 `prompts/prompt-versions.json` 골든. eval의 `prompt-versions` check가 드리프트를 fail로 노출. renderPrompt 골든 스냅샷으로 렌더링 로직 회귀도 고정. 의도적 변경은 `scripts/update-prompt-versions.mjs`로 갱신 | 직접 |
+| agent 견고성 | spawn 전 바이너리 해석(`resolveCommandPath`): PATH + 흔한 설치 위치 탐색, 실패 시 명확한 에러로 fail-fast. `spawn claude ENOENT` 대응 | 직접 |
+| C2b | 정책을 diff·명령 allowlist에 근거화(`evaluateChangeRisk`, additive) + detached HEAD fail-safe. inspection 단계에 policyAssessment 연결. 텍스트 게이트는 회귀 없이 보존 | 직접 |
+| C4b | docker 하드닝: `--user` 비루트 기본(host uid:gid), review_only에서 repo `:ro` + `--read-only`(+`/tmp` tmpfs). 모두 config로 재정의 가능 | 직접 |
+| A2b | 큐 클레임 rename 원자적 선점(`claimPendingTask`). 동시 tick 이중 실행 방지 | 직접 |
+| — | metrics를 `harness --help` usage에 노출(누락 보강) | 직접 |
 
-### ⏳ 남음 (다음 세션)
+### ⏳ 남음 (후속)
 
 | ID | 작업 | 우선순위 / 비고 |
 |----|------|-----------------|
-| B5 | 프롬프트/역할 품질 회귀 관리 (프롬프트 버전 + 골든 출력 비교) | **최우선.** B4 기반 |
-| — | **agent 실행 견고성** (신규) — dogfooding 중 `spawn claude ENOENT`로 coder 실패. agent 바이너리 해석·PATH·spawn 재시도 보강 | 실용적, 중간 우선순위 |
-| C2b | 정책 판정을 키워드 substring → inspection diff·명령 allowlist 기반으로 + detached HEAD 처리 (selection은 완료) | 중간 |
-| C4b | docker 하드닝 (non-root `--user`, review_only에서 repo `:ro`, `--read-only`) | 중간 |
-| A2b | 큐 클레임 rename 선점 (동시 tick 대비) | 낮음 (단일 사용자 CLI라 리스크 낮음) |
+| C4b+ | docker 하드닝의 **실제 컨테이너 런타임** end-to-end 검증(로직·인자조립만 테스트됨) | 중간 |
+| agent+ | agent spawn의 **실제 실행** end-to-end 검증 및 전이 오류(EAGAIN 등) 재시도 | 중간 |
+| C2b+ | diff 위험으로 런을 **하드 블록**(제어 흐름 차단)하는 라이브 게이트 — 현재는 관측·additive까지 | 중간 |
 
 ---
 
