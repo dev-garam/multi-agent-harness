@@ -84,12 +84,20 @@ function agentUsageSummary(steps) {
       inputTokens: step.usage.inputTokens ?? null,
       outputTokens: step.usage.outputTokens ?? null,
       totalTokens: step.usage.totalTokens ?? null,
+      billedTokens: step.usage.billedTokens ?? null,
+      cacheReadTokens: step.usage.cacheReadTokens ?? null,
+      cacheCreationTokens: step.usage.cacheCreationTokens ?? null,
+      turns: step.usage.turns ?? null,
       costUsd: step.usage.costUsd ?? null
     }));
   return {
     parsed: usageEntries.filter((entry) => entry.status === 'parsed').length,
     unknown: usageEntries.filter((entry) => entry.status !== 'parsed').length,
     totalTokens: usageEntries.reduce((total, entry) => total + (entry.totalTokens || 0), 0),
+    billedTokens: usageEntries.reduce((total, entry) => total + (entry.billedTokens || 0), 0),
+    cacheReadTokens: usageEntries.reduce((total, entry) => total + (entry.cacheReadTokens || 0), 0),
+    cacheCreationTokens: usageEntries.reduce((total, entry) => total + (entry.cacheCreationTokens || 0), 0),
+    agentTurns: usageEntries.reduce((total, entry) => total + (entry.turns || 0), 0),
     costUsd: usageEntries.reduce((total, entry) => total + (entry.costUsd || 0), 0),
     entries: usageEntries
   };
@@ -240,6 +248,10 @@ export function formatRunSummary(summary) {
     `Parsed entries: ${summary.usage.parsedUsageEntries ?? summary.usage.parsed ?? 0}`,
     `Unknown entries: ${summary.usage.unknownUsageEntries ?? summary.usage.unknown ?? 0}`,
     `Total tokens: ${summary.usage.totalTokens}`,
+    `Billed tokens (incl. cache): ${summary.usage.billedTokens ?? 0}`,
+    `Cache read tokens: ${summary.usage.cacheReadTokens ?? 0}`,
+    `Cache creation tokens: ${summary.usage.cacheCreationTokens ?? 0}`,
+    `Agent turns: ${summary.usage.agentTurns ?? 0}`,
     `Cost USD: ${summary.usage.costUsd}`,
     `Remaining tokens: ${formatNullable(summary.usage.remainingTokens)}`,
     '',

@@ -3,7 +3,8 @@ import {
   SECRET_PATTERNS,
   RISKY_FILE_PATTERNS,
   detectRiskyFiles,
-  inspectionSummary
+  inspectionSummary,
+  parseStatusShort
 } from '../src/inspection.js';
 
 // 탐지 로직은 순수한 정규식/함수로 검증한다. 디스크 읽기나 git 실행 같은
@@ -105,3 +106,35 @@ assert.ok(summary.includes('diffStatPath: /run/inspection.diffstat.log'));
 assert.ok(summary.includes('detailsPath: /run/inspection.json'));
 
 console.log('inspection tests passed');
+
+// ---------------------------------------------------------------------------
+// parseStatusShort — `git status --short`는 XY(2칸) + 공백 + 경로 형식이라
+// 선행 공백이 의미를 갖는다. 원문의 선행 공백이 잘리면 첫 줄 경로가 한 글자
+// 손실되고, 그 경로가 riskyFiles/secretFindings 매칭의 입력이므로 안전 게이트가
+// 조용히 탐지를 놓칠 수 있다. (실제 e2e 실행에서 "README.md" -> "EADME.md" 발생)
+// ---------------------------------------------------------------------------
+const statusShortOutput = ' M README.md\n M src/app.js\n?? .env\nA  staged.txt\n';
+
+const parsedStatus = parseStatusShort(statusShortOutput);
+assert.deepEqual(
+  parsedStatus.map((entry) => entry.path),
+  ['README.md', 'src/app.js', '.env', 'staged.txt']
+);
+assert.deepEqual(
+  parsedStatus.map((entry) => entry.status),
+  ['M', 'M', '??', 'A']
+);
+
+// 회귀 방어: 선행 공백이 잘린 입력(과거 버그 재현)에서는 첫 줄이 손상된다.
+// 이 단언은 "파서에 원문을 넘겨야 한다"는 계약을 문서화한다.
+assert.equal(parseStatusShort(statusShortOutput.trim())[0].path, 'EADME.md');
+
+// 위험 경로가 첫 줄일 때가 실질적인 위험 지점이다.
+const envFirst = parseStatusShort(' M .env\n M README.md\n');
+assert.equal(envFirst[0].path, '.env');
+assert.equal(detectRiskyFiles(envFirst).length > 0, true);
+
+// rename(R)은 화살표 뒤 최종 경로를 취한다.
+assert.equal(parseStatusShort('R  old.js -> new.js\n')[0].path, 'new.js');
+
+console.log('inspection status parser tests passed');
