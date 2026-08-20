@@ -70,11 +70,15 @@ async function capture(command, args, { cwd }) {
   return {
     exitCode,
     stdout: stdout.trim(),
+    // `git status --short`는 선행 공백이 의미를 갖는다(" M path" = worktree 수정).
+    // stdout.trim()은 첫 줄의 선행 공백을 지워 경로가 한 글자 잘리므로,
+    // 위치 기반 파서를 위해 원문도 함께 노출한다.
+    stdoutRaw: stdout,
     stderr: stderr.trim()
   };
 }
 
-function parseStatusShort(text) {
+export function parseStatusShort(text) {
   return String(text || '')
     .split('\n')
     .map((line) => line.trimEnd())
@@ -183,7 +187,7 @@ export async function inspectChanges({ repo, runDir, id, baselineStatusShort = '
     capture('git', ['diff', '--name-status'], { cwd: repo })
   ]);
 
-  const statusFiles = parseStatusShort(statusShort.exitCode === 0 ? statusShort.stdout : '');
+  const statusFiles = parseStatusShort(statusShort.exitCode === 0 ? statusShort.stdoutRaw : '');
   const changedFiles = uniqueByPath(statusFiles);
   const riskyFiles = detectRiskyFiles(changedFiles);
   const secretFindings = await scanSecrets(repo, changedFiles);
