@@ -775,7 +775,23 @@ agent/validation/tool 실행 주변에는 가벼운 middleware runtime이 붙습
 
 재시도는 모든 실패에 적용하지 않고 timeout, rate limit, 일시적 provider 오류처럼 retryable로 분류된 실패에만 적용됩니다. provider 로그에서 token/cost usage를 읽을 수 있으면 provider adapter를 통해 manifest에 기록하고, 읽을 수 없으면 `unknown`으로 남깁니다.
 
+Claude adapter는 usage를 노출시키기 위해 `--output-format json`으로 실행합니다. stdout이 단일 JSON 문서가 되므로 하네스가 `result` 필드만 뽑아 다음 스텝 컨텍스트에 넣고, 파싱에 실패하면 stdout 원문으로 폴백합니다.
+
 `pipeline: "auto"`의 선택 자체는 LLM을 호출하지 않는 deterministic classifier입니다. 선택 결과와 판단 신호는 `manifest.pipelineSelection`에 기록됩니다. provider 호출 수, 파싱된 token/cost 사용량, 남은 provider call 예산은 `manifest.usageSummary`와 `harness show`에 표시됩니다. provider가 전체 token budget을 노출하지 않으면 남은 token 수는 추정하지 않고 `unknown`으로 남깁니다.
+
+### 토큰 소비 지표
+
+캐시 토큰은 `input_tokens`에 포함되지 않기 때문에, 그것만 보면 실제 소비의 극히 일부만 보입니다. 하네스는 아래를 구분해서 기록합니다.
+
+| 지표 | 뜻 |
+| --- | --- |
+| `totalTokens` | `input + output`. 기존 계약 유지 |
+| `billedTokens` | `input + output + cacheCreation + cacheRead`. **실제 청구 기준** |
+| `cacheReadTokens` | 캐시에서 읽은 토큰 |
+| `cacheCreationTokens` | 캐시에 쓴 토큰 |
+| `agentTurns` | agent CLI가 스텝 하나를 처리하며 돈 내부 turn 수 |
+
+실측 예(README 한 줄 수정, `quick_fix`, provider 호출 3회): `totalTokens` 7,370인데 `billedTokens`는 319,510입니다. 즉 `totalTokens`만 보면 실제 소비의 2.3%만 보게 됩니다. 스텝마다 새 CLI 프로세스가 뜨므로 스텝 간 캐시가 이어지지 않고, 각 스텝이 repo 컨텍스트를 새로 적재하는 비용이 여기에 잡힙니다.
 
 각 run은 `prompt-cache.json`도 생성합니다. 이 artifact는 prompt template hash, static project config hash, validation command hash를 담으며, 이후 prompt/context cache 최적화나 회귀 비교에 사용할 수 있습니다.
 
@@ -1117,7 +1133,7 @@ npm run check
 npm test
 ```
 
-`npm test`는 mock agent와 fixture를 사용해 19개 스위트를 실행합니다. Hermes controller 외에 config validation, provider contract, pipeline selection, policy gate, trust, inspection, usage, metrics, middleware, prompt cache 등 핵심 모듈을 함께 검증합니다.
+`npm test`는 mock agent와 fixture를 사용해 23개 스위트를 실행합니다. Hermes controller 외에 config validation, provider contract, pipeline selection, policy gate, trust, inspection, usage, metrics, middleware, prompt cache 등 핵심 모듈을 함께 검증합니다.
 
 Hermes controller 스위트가 검증하는 대표 경로:
 

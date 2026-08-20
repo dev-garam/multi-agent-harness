@@ -38,17 +38,32 @@
 | — | metrics를 `harness --help` usage에 노출(누락 보강) | 직접 |
 
 | C2b+ | diff 위험 하드 블록: `policy.blockOnChangeRisk` 옵트인 시 inspection 후 런 차단(`#enforceChangeRiskGate`). `--policy-approved`로 우회, 기본 off로 하위 호환. e2e 테스트 | 직접 |
+| B6 | **토큰 가시성**. claude adapter를 `--output-format json`으로 전환해 usage/total_cost_usd를 노출(text 모드에서는 아예 출력되지 않아 측정 불가였음). stdout이 JSON이 되므로 `extractFinalOutput`으로 `result`만 뽑아 다음 스텝 컨텍스트에 넣고, 파싱 실패 시 원문 폴백. 캐시 토큰을 포함한 `billedTokens`·`agentTurns` 집계를 `usage.js`/`show`에 추가. **실제 claude로 e2e 검증** | 직접 |
 
 ### ⏳ 남음 (후속)
 
 | ID | 작업 | 우선순위 / 비고 |
 |----|------|-----------------|
 | C4b+ | docker 하드닝의 **실제 컨테이너 런타임** end-to-end 검증(로직·인자조립만 테스트됨) | 중간 |
-| agent+ | agent spawn의 **실제 실행** end-to-end 검증 및 전이 오류(EAGAIN 등) 재시도 | 중간 |
+| agent+ | agent spawn의 전이 오류(EAGAIN 등) 재시도. 실제 실행 e2e는 B6에서 claude 경로로 1회 확인됨(성공 경로만) | 중간 |
 
 > 자율(hermes) 경로에서 하드 블록된 런은 현재 failed로 처리된다. 이를 `approval_pending` 큐로 라우팅하는 것은 선택적 개선(현재도 안전한 결과).
 
 ---
+
+## 측정으로 드러난 것 (B6 이후)
+
+B6로 토큰이 처음 측정 가능해지자 구조적 비용이 드러났다. `quick_fix`(provider 호출 3회)로 README 한 줄을 고치는 데 `billedTokens` 319,510 / $0.69가 들었고, 그중 **캐시 조회가 274,920 토큰(86%)** 이었다. `totalTokens`(input+output)는 7,370으로 실제의 2.3%만 보여준다.
+
+원인은 낭비가 아니라 구조다. 스텝마다 새 CLI 프로세스가 뜨므로 (1) 스텝 간 프롬프트 캐시가 이어지지 않고, (2) 각 스텝이 repo 컨텍스트를 처음부터 다시 적재하며, (3) `previousOutputs` 누적으로 프롬프트가 스텝 수에 대해 O(N²)로 늘어난다. 실측한 safe_fix run에서 프롬프트 전송 총합 109KB 중 71%가 중복 재전송이었다.
+
+후속 후보(우선순위 순):
+
+| ID | 작업 | 비고 |
+|----|------|------|
+| B6a | `previousOutputs`를 역할별로 선별 주입(현재는 전 스텝 무조건 누적) | reporter 프롬프트가 가장 큼 |
+| B6b | `escalate_to_safe_fix`가 파이프라인을 처음부터 재실행하는 대신 부족한 스텝만 추가 | 468 run 중 37건에서 발동 |
+| B6c | `budget`에 token/cost 상한 추가(현재는 호출 횟수 상한만 존재) | B6로 측정이 가능해져 비로소 의미가 생김 |
 
 ## dogfooding 교훈 (이번 세션)
 

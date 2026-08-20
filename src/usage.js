@@ -8,6 +8,11 @@ function parseNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function sumDefined(...values) {
+  const defined = values.filter((value) => value !== null && value !== undefined);
+  return defined.length > 0 ? defined.reduce((total, value) => total + value, 0) : null;
+}
+
 function fromUsageObject(value, { provider = 'unknown', adapter = 'generic' } = {}) {
   if (!value || typeof value !== 'object') {
     return null;
@@ -16,11 +21,29 @@ function fromUsageObject(value, { provider = 'unknown', adapter = 'generic' } = 
   const inputTokens = parseNumber(value.input_tokens ?? value.inputTokens ?? value.prompt_tokens ?? value.promptTokens);
   const outputTokens = parseNumber(value.output_tokens ?? value.outputTokens ?? value.completion_tokens ?? value.completionTokens);
   const totalTokens = parseNumber(value.total_tokens ?? value.totalTokens);
-  const costUsd = parseNumber(value.cost_usd ?? value.costUsd ?? value.cost);
+  const costUsd = parseNumber(
+    value.cost_usd ?? value.costUsd ?? value.cost ?? value.total_cost_usd ?? value.totalCostUsd
+  );
+  // 캐시 토큰은 청구 대상이지만 input_tokens에 포함되지 않는다. 별도로 집계하지
+  // 않으면 실제 소비의 극히 일부만 보게 된다(예: input 2 / cache_read 15900).
+  const cacheCreationTokens = parseNumber(
+    value.cache_creation_input_tokens ?? value.cacheCreationInputTokens
+  );
+  const cacheReadTokens = parseNumber(
+    value.cache_read_input_tokens ?? value.cacheReadInputTokens
+  );
+  // agent CLI가 내부적으로 돈 turn 수. 스텝 하나가 몇 번의 model 호출로
+  // 이어졌는지 보여주는 소비 지표라 함께 보존한다.
+  const turns = parseNumber(value.num_turns ?? value.numTurns ?? value.turns);
 
-  if (inputTokens === null && outputTokens === null && totalTokens === null && costUsd === null) {
+  if (
+    inputTokens === null && outputTokens === null && totalTokens === null && costUsd === null &&
+    cacheCreationTokens === null && cacheReadTokens === null
+  ) {
     return null;
   }
+
+  const resolvedTotal = totalTokens ?? sumDefined(inputTokens, outputTokens);
 
   return {
     status: 'parsed',
@@ -28,22 +51,55 @@ function fromUsageObject(value, { provider = 'unknown', adapter = 'generic' } = 
     adapter,
     inputTokens,
     outputTokens,
-    totalTokens: totalTokens ?? (
-      inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null
-    ),
+    cacheCreationTokens,
+    cacheReadTokens,
+    totalTokens: resolvedTotal,
+    // 실제 청구 기준 합계: 캐시 생성/조회 토큰까지 포함한다. totalTokens는
+    // 기존 계약(input+output)을 유지하고, 소비 판단은 billedTokens로 한다.
+    billedTokens: sumDefined(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens),
+    turns,
     costUsd
   };
 }
 
+// claude `--output-format json`은 usage를 중첩 객체에, 비용을 최상위
+// total_cost_usd에 둔다. 한 객체로 병합해 fromUsageObject가 단일 형태만 다루게 한다.
+function mergedUsageSource(parsed) {
+  if (parsed && typeof parsed === 'object' && parsed.usage && typeof parsed.usage === 'object') {
+    return {
+      ...parsed.usage,
+      cost_usd: parsed.usage.cost_usd ?? parsed.usage.costUsd ?? parsed.total_cost_usd ?? parsed.totalCostUsd,
+      num_turns: parsed.usage.num_turns ?? parsed.num_turns ?? parsed.numTurns
+    };
+  }
+  return parsed;
+}
+
 function parseJsonUsage(text, context = {}) {
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const trimmed = line.trim();
+  const value = String(text || '');
+
+  // 전체가 하나의 JSON 문서인 경우(멀티라인 pretty-print 포함).
+  const trimmedAll = value.trim();
+  if (trimmedAll.startsWith('{') && trimmedAll.endsWith('}')) {
+    try {
+      const usage = fromUsageObject(mergedUsageSource(JSON.parse(trimmedAll)), context);
+      if (usage) {
+        return usage;
+      }
+    } catch {
+      // 통짜 파싱 실패 — 줄 단위로 계속 시도한다.
+    }
+  }
+
+  // 줄 단위 JSON 로그(마지막 usage 줄이 최종값이므로 역순으로 훑는다).
+  const lines = value.split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const trimmed = lines[index].trim();
     if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
       continue;
     }
     try {
-      const parsed = JSON.parse(trimmed);
-      const usage = fromUsageObject(parsed.usage || parsed, context);
+      const usage = fromUsageObject(mergedUsageSource(JSON.parse(trimmed)), context);
       if (usage) {
         return usage;
       }
@@ -82,7 +138,11 @@ export function parseProviderUsage(text, { provider = 'unknown' } = {}) {
     adapter,
     inputTokens: null,
     outputTokens: null,
+    cacheCreationTokens: null,
+    cacheReadTokens: null,
     totalTokens: null,
+    billedTokens: null,
+    turns: null,
     costUsd: null
   };
 }
@@ -97,6 +157,10 @@ export function summarizeManifestUsage(manifest = {}) {
       adapter: step.usage.adapter || null,
       status: step.usage.status || 'unknown',
       totalTokens: step.usage.totalTokens ?? null,
+      billedTokens: step.usage.billedTokens ?? null,
+      cacheReadTokens: step.usage.cacheReadTokens ?? null,
+      cacheCreationTokens: step.usage.cacheCreationTokens ?? null,
+      turns: step.usage.turns ?? null,
       costUsd: step.usage.costUsd ?? null
     }));
   const providerCalls = manifest.middleware?.state?.counters?.providerCalls ?? 0;
@@ -104,6 +168,7 @@ export function summarizeManifestUsage(manifest = {}) {
   const remainingProviderCalls = maxProviderCalls === null
     ? null
     : Math.max(0, maxProviderCalls - providerCalls);
+  const sum = (key) => entries.reduce((total, entry) => total + (entry[key] || 0), 0);
 
   return {
     providerCalls,
@@ -111,7 +176,11 @@ export function summarizeManifestUsage(manifest = {}) {
     remainingProviderCalls,
     parsedUsageEntries: entries.filter((entry) => entry.status === 'parsed').length,
     unknownUsageEntries: entries.filter((entry) => entry.status !== 'parsed').length,
-    totalTokens: entries.reduce((total, entry) => total + (entry.totalTokens || 0), 0),
+    totalTokens: sum('totalTokens'),
+    billedTokens: sum('billedTokens'),
+    cacheReadTokens: sum('cacheReadTokens'),
+    cacheCreationTokens: sum('cacheCreationTokens'),
+    agentTurns: sum('turns'),
     costUsd: entries.reduce((total, entry) => total + (entry.costUsd || 0), 0),
     remainingTokens: null,
     remainingTokensReason: 'provider did not expose token budget',
@@ -126,6 +195,10 @@ export function formatUsageSummary(summary = {}) {
     `parsedUsageEntries: ${summary.parsedUsageEntries ?? 0}`,
     `unknownUsageEntries: ${summary.unknownUsageEntries ?? 0}`,
     `totalTokens: ${summary.totalTokens ?? 0}`,
+    `billedTokens: ${summary.billedTokens ?? 0}`,
+    `cacheReadTokens: ${summary.cacheReadTokens ?? 0}`,
+    `cacheCreationTokens: ${summary.cacheCreationTokens ?? 0}`,
+    `agentTurns: ${summary.agentTurns ?? 0}`,
     `costUsd: ${summary.costUsd ?? 0}`,
     `remainingTokens: ${summary.remainingTokens ?? 'unknown'}`,
     `remainingTokensReason: ${summary.remainingTokensReason || 'unknown'}`

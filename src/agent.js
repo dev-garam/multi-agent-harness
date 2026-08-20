@@ -39,15 +39,33 @@ const defaultProviders = {
     command: 'claude',
     versionArgs: ['--version'],
     outputMode: 'stdout',
+    stdoutFormat: 'json',
     defaultTimeoutMs: 10 * 60 * 1000,
     capabilities: {
       outputMode: 'stdout',
+      stdoutFormat: 'json',
       supportsModel: true,
       supportsSandbox: false,
       requiresOutputFile: false
     },
+    // `--output-format json`은 stdout을 단일 JSON 문서로 만든다. 최종 텍스트는
+    // result 필드에 들어가고, usage(캐시 토큰 포함)와 total_cost_usd가 함께 실린다.
+    // text 모드에서는 이 소비 정보가 아예 출력되지 않아 측정이 불가능하다.
+    // 파싱에 실패하면 null을 반환해 호출부가 stdout 원문으로 폴백하게 한다.
+    extractFinalOutput(stdout) {
+      const trimmed = String(stdout || '').trim();
+      if (!trimmed.startsWith('{')) {
+        return null;
+      }
+      try {
+        const parsed = JSON.parse(trimmed);
+        return typeof parsed.result === 'string' ? parsed.result : null;
+      } catch {
+        return null;
+      }
+    },
     buildArgs({ step, prompt }) {
-      const args = ['-p', prompt, '--output-format', 'text'];
+      const args = ['-p', prompt, '--output-format', 'json'];
 
       // Map the harness sandbox model onto Claude Code permission flags:
       // write-enabled steps (e.g. coder) may edit files and run package/build
@@ -152,6 +170,7 @@ function providerFromConfig(agentConfig = {}) {
     command: agentConfig.command || base?.command,
     versionArgs: agentConfig.versionArgs || base?.versionArgs || ['--version'],
     outputMode,
+    stdoutFormat: agentConfig.stdoutFormat || base?.stdoutFormat || null,
     defaultTimeoutMs: Number(agentConfig.defaultTimeoutMs || base?.defaultTimeoutMs || DEFAULT_TIMEOUT_MS),
     capabilities: {
       ...(base?.capabilities || {}),
@@ -333,8 +352,17 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
 
   await writeText(eventsPath, stdout);
   await writeText(stderrPath, stderr);
+  // stdout 모드 provider가 구조화 출력을 쓰면(claude --output-format json) 최종
+  // 텍스트만 뽑아 finalPath에 남긴다. 그러지 않으면 JSON 래퍼가 통째로 다음 스텝
+  // 프롬프트(previousOutputs)에 실려 오히려 컨텍스트를 부풀린다.
+  // 추출 실패 시 stdout 원문을 그대로 남긴다(안전한 폴백).
+  let finalOutputExtracted = false;
   if (agent.outputMode === 'stdout') {
-    await writeText(finalPath, stdout);
+    const extracted = typeof agent.base?.extractFinalOutput === 'function'
+      ? agent.base.extractFinalOutput(stdout)
+      : null;
+    finalOutputExtracted = extracted !== null && extracted !== undefined;
+    await writeText(finalPath, finalOutputExtracted ? extracted : stdout);
   }
   const finishedAt = new Date();
 
@@ -346,6 +374,8 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
     agent: agent.name,
     command: agent.command,
     outputMode: agent.outputMode,
+    stdoutFormat: agent.stdoutFormat || null,
+    finalOutputExtracted,
     capabilities: agent.capabilities,
     customAgent: agent.custom,
     runtime: runtime?.mode || 'local',
