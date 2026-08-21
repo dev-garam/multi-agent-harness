@@ -997,7 +997,19 @@ See runs/2026-08-21_155858_056
 
 **`timeout`은 재시도하지 않습니다.** 시간이 다해 죽은 작업을 같은 시간 안에 다시 시키면 대개 같은 결과를 내고 시간만 두 배로 씁니다. 대신 요청을 좁히거나 `resources.agentTimeoutMs`를 올리라고 안내합니다. 굳이 재시도하려면 `retry.retryOnExitCodes: [124]`로 명시하면 됩니다 — 명시적 설정이 항상 우선합니다.
 
-분류 결과는 `manifest.failure`에 `kind`/`retryable`/`summary`/`nextStep`으로 남습니다.
+분류 결과는 `manifest.failure`에 `kind`/`retryable`/`summary`/`nextStep`으로 남고, `harness metrics`가 이를 집계합니다.
+
+```text
+Failures by cause (405 failed run(s)):
+  policy                      154  38.0%
+  validation                   89  22.0%
+  agent:timeout                79  19.5%
+  policy-block:change-risk     43  10.6%
+  agent:rate-limit              2   0.5%
+  → retryable cause             2  (retry.agentRetries + backoffMs would target these)
+```
+
+마지막 줄이 **재시도 설정을 켤지 판단하는 근거**입니다. 0이면 재시도를 켜도 건질 것이 없다고 알려줍니다. `manifest.failure`가 없는 예전 run도 실패한 스텝을 다시 분류해서 함께 집계합니다.
 
 재시도는 모든 실패에 적용하지 않고 rate limit, 일시적 네트워크 오류처럼 retryable로 분류된 실패에만 적용됩니다. provider 로그에서 token/cost usage를 읽을 수 있으면 provider adapter를 통해 manifest에 기록하고, 읽을 수 없으면 `unknown`으로 남깁니다.
 
