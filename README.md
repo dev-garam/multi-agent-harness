@@ -232,12 +232,35 @@ Hermes가 사용할 수 있는 액션은 다음과 같습니다.
 
 - `continue`: 최종 보고 단계로 진행합니다.
 - `run_validation`: 설정된 validation 명령만 다시 실행한 뒤 Hermes 판단으로 돌아갑니다.
-- `escalate_to_safe_fix`: 현재 파이프라인을 `safe_fix`로 승격하고 더 강한 흐름을 다시 실행합니다.
+- `escalate_to_safe_fix`: 현재 파이프라인을 `safe_fix`로 승격하고 더 강한 흐름을 실행합니다. 기본값은 파이프라인을 처음부터 다시 도는 것이고, `supervisor.escalation.skipCompletedSteps`를 켜면 이미 끝낸 계획·구현을 건너뛰고 검증 보강만 이어갑니다.
 - `rerun_step`: 이전 worker 하나를 제한된 횟수 안에서 다시 실행합니다.
 - `stop_failed`: reporter가 실패 상태를 보고하게 한 뒤 하네스 실행을 실패로 종료합니다.
 - `request_human_review`: reporter가 사람 검토 필요 상태를 보고하게 한 뒤 하네스 실행을 실패로 종료합니다.
 
-Hermes 결정은 `manifest.json`의 `supervisorDecisions`에 기록됩니다. 파이프라인 승격은 `pipelineChanges`에 기록됩니다.
+Hermes 결정은 `manifest.json`의 `supervisorDecisions`에 기록됩니다. 파이프라인 승격은 `pipelineChanges`에 기록되며, 건너뛴 스텝은 `skippedSteps`와 `resumeStepIndex`로 남습니다.
+
+### 승격 시 재실행 범위
+
+기본 동작은 승격 후 새 파이프라인을 처음부터 다시 도는 것입니다. `quick_fix`에서 승격하면 이미 끝난 `coder`가 한 번 더 실행됩니다.
+
+```text
+기본:   coder → hermes → planner → coder-retry-1 → qa → verifier → hermes-retry-1 → reporter   (8 스텝)
+옵트인: coder → hermes →                           qa → verifier → hermes-retry-1 → reporter   (6 스텝)
+```
+
+```json
+{
+  "supervisor": {
+    "escalation": { "skipCompletedSteps": true }
+  }
+}
+```
+
+승격의 의미는 "검증을 보강한다"입니다. 이미 코드를 쓴 뒤라면 계획과 구현을 다시 할 이유가 없고, 그 뒤에 이미 끝낸 검증 단계도 반복하지 않습니다. `code_fix`에서 승격하면 실제로 추가되는 것은 `verifier` 하나뿐입니다.
+
+아직 쓰기 스텝이 없었다면(`review_only` 등) 승격은 "수정이 필요하다"는 뜻이므로 옵트인이 켜져 있어도 처음부터 실행합니다. `hermes`와 `reporter`는 새 증거로 다시 판단해야 하므로 항상 실행됩니다.
+
+기본값은 `false`입니다.
 
 Hermes 출력의 마지막에는 아래 형식의 fenced JSON block이 있어야 합니다.
 

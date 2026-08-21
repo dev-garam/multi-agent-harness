@@ -65,10 +65,15 @@ function supervisorConfigFromProjectConfig(projectConfig = {}) {
     ? supervisor.maxStepRetries
     : DEFAULT_MAX_STEP_RETRIES;
 
+  const escalation = supervisor.escalation || {};
   return {
     enabled: supervisor.enabled !== false,
     maxSupervisorTurns,
-    maxStepRetries
+    maxStepRetries,
+    escalation: {
+      // 안전 기본값: 기존처럼 승격 시 파이프라인을 처음부터 다시 돈다.
+      skipCompletedSteps: escalation.skipCompletedSteps === true
+    }
   };
 }
 
@@ -513,6 +518,8 @@ export class PipelineExecutor {
     this.supervisorTerminalStatus = null;
     this.shouldStopAfterReporter = false;
     this.escalatedToSafeFix = this.selected.pipelineName === 'safe_fix';
+    // 승격 시 이미 끝낸 작업을 다시 돌리지 않기 위해 실행한 base step을 기록한다.
+    this.executedSteps = new Set();
     this.stepIndex = 0;
   }
 
@@ -913,6 +920,8 @@ export class PipelineExecutor {
         throw new Error(`Step failed: ${step.id} (exit ${result.exitCode}). See ${this.runDir}`);
       }
 
+      this.executedSteps.add(baseStep.id);
+
       if (this.validationAfter.has(baseStep.id)) {
         const validationStage = await this.#runValidationStage({
           step: baseStep,
@@ -946,6 +955,45 @@ export class PipelineExecutor {
 
       this.stepIndex += 1;
     }
+  }
+
+  /**
+   * safe_fix로 승격할 때 어디서부터 이어갈지 정한다.
+   *
+   * 승격의 의미는 "검증을 보강한다"이다. 이미 코드를 쓴 뒤라면 계획·구현을 다시
+   * 할 이유가 없고, 그 뒤에 이미 끝낸 검증 단계도 반복할 필요가 없다. 그래서
+   * coder 이후부터 시작하되, 연속으로 이미 실행한 스텝은 더 건너뛴다.
+   * (code_fix에서 승격하면 실제로 추가되는 것은 verifier 하나뿐이다.)
+   *
+   * 아직 쓰기 스텝이 없었다면(review_only 등) 승격은 "수정이 필요하다"는 뜻이므로
+   * 처음부터 실행한다. hermes와 reporter는 새 증거로 다시 판단해야 하므로 항상 돈다.
+   */
+  #escalationResumePlan() {
+    const steps = this.selected.pipeline.steps;
+    if (!this.supervisorConfig.escalation.skipCompletedSteps) {
+      return { index: 0, skipped: [] };
+    }
+
+    const coderIndex = steps.findIndex((step) => step.id === 'coder');
+    if (coderIndex < 0 || !this.executedSteps.has('coder')) {
+      return { index: 0, skipped: [] };
+    }
+
+    const skipped = steps.slice(0, coderIndex + 1).map((step) => step.id);
+    let index = coderIndex + 1;
+    while (index < steps.length) {
+      const stepId = steps[index].id;
+      if (stepId === HERMES_STEP_ID || stepId === 'reporter') {
+        break;
+      }
+      if (!this.executedSteps.has(stepId)) {
+        break;
+      }
+      skipped.push(stepId);
+      index += 1;
+    }
+
+    return { index, skipped };
   }
 
   /**
@@ -1019,16 +1067,27 @@ export class PipelineExecutor {
         this.escalatedToSafeFix = true;
         this.supervisorInstructions = appendSupervisorInstructions('', decision);
         this.context.push({ kind: 'supervisor', text: supervisorInstructionsSection(decision) });
+        const resume = this.#escalationResumePlan();
         this.manifest.pipelineChanges.push({
           from: previousPipeline,
           to: this.selected.pipelineName,
           reason: decision.reason,
           instructions: decision.instructions,
           turn: this.supervisorTurns,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          resumeStepIndex: resume.index,
+          skippedSteps: resume.skipped
         });
+        if (resume.skipped.length > 0) {
+          this.harnessRuntime.recordEvent('escalation:resume', {
+            from: previousPipeline,
+            to: this.selected.pipelineName,
+            resumeStepIndex: resume.index,
+            skippedSteps: resume.skipped
+          });
+        }
         await this.#saveRuntimeManifest();
-        this.stepIndex = 0;
+        this.stepIndex = resume.index;
         return true;
       }
 

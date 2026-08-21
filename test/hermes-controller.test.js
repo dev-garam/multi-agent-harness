@@ -67,7 +67,7 @@ if (stepId.startsWith('hermes')) {
     body = decision({ status: 'incomplete', nextAction: 'rerun_step', targetStep: 'coder', reason: 'mock retry', instructions: 'retry coder once' });
   } else if (scenario === 'validation' && hermesCount === 1) {
     body = decision({ status: 'incomplete', nextAction: 'run_validation', targetStep: 'coder', reason: 'mock validation', instructions: 'run validation again' });
-  } else if (scenario === 'escalate' && hermesCount === 1) {
+  } else if (scenario.indexOf('escalate') === 0 && hermesCount === 1) {
     body = decision({ status: 'incomplete', nextAction: 'escalate_to_safe_fix', targetStep: null, reason: 'mock escalation', instructions: 'use safe fix' });
   } else {
     body = decision({ status: 'success', nextAction: 'continue', targetStep: null, reason: 'mock ok', instructions: 'report success' });
@@ -115,6 +115,9 @@ function writeProjectConfig(repo, scenario) {
       enabled: true,
       maxSupervisorTurns: 4,
       maxStepRetries: 1,
+      escalation: scenario === 'escalate-resume'
+        ? { skipCompletedSteps: true }
+        : undefined,
       agent: {
         provider: 'mock-supervisor',
         command: 'node',
@@ -132,11 +135,11 @@ function writeProjectConfig(repo, scenario) {
   writeFileSync(path.join(repo, '.scenario'), scenario);
 }
 
-function runHarness(scenario) {
+function runHarness(scenario, pipeline = 'quick_fix') {
   const repo = mkdtempSync(path.join(tmpdir(), `harness-${scenario}-`));
   writeProjectConfig(repo, scenario);
 
-  const result = spawnSync('node', [harnessBin, 'run', '--repo', repo, '--pipeline', 'quick_fix', `${scenario} test`], {
+  const result = spawnSync('node', [harnessBin, 'run', '--repo', repo, '--pipeline', pipeline, `${scenario} test`], {
     cwd: harnessRoot,
     env: {
       ...process.env,
@@ -292,6 +295,60 @@ assert.deepEqual(escalation.manifest.supervisorDecisions.map((entry) => entry.ne
 assert.equal(escalation.manifest.pipelineChanges.length, 1);
 assert.equal(escalation.manifest.pipelineChanges[0].to, 'safe_fix');
 assert.ok(escalation.steps.includes('verifier'), 'safe_fix escalation should run verifier');
+
+// 기본값(옵트인 off)은 기존 동작을 유지한다: 승격 후 파이프라인을 처음부터 다시 돈다.
+// quick_fix에서 coder를 한 번 돌았으므로 safe_fix 재실행으로 coder가 두 번 실행된다.
+assert.equal(escalation.manifest.pipelineChanges[0].resumeStepIndex, 0);
+assert.deepEqual(escalation.manifest.pipelineChanges[0].skippedSteps, []);
+// 기본은 planner부터 다시 돌므로 coder가 재실행(coder-retry-1)된다.
+assert.deepEqual(
+  escalation.steps,
+  ['coder', 'hermes', 'planner', 'coder-retry-1', 'qa', 'verifier', 'hermes-retry-1', 'reporter']
+);
+assert.ok(escalation.steps.includes('planner'), 'default escalation runs planner again');
+
+// 옵트인 시: 승격은 검증 보강이므로 계획·구현을 다시 하지 않는다.
+// quick_fix(coder 완료) -> safe_fix 이면 qa/verifier 부터 이어간다.
+const escalationResume = runHarness('escalate-resume');
+assert.deepEqual(
+  escalationResume.manifest.supervisorDecisions.map((entry) => entry.nextAction),
+  ['escalate_to_safe_fix', 'continue']
+);
+assert.equal(escalationResume.manifest.pipelineChanges[0].to, 'safe_fix');
+assert.deepEqual(escalationResume.manifest.pipelineChanges[0].skippedSteps, ['planner', 'coder']);
+assert.equal(escalationResume.manifest.pipelineChanges[0].resumeStepIndex, 2);
+// 옵트인은 계획·구현을 건너뛰고 검증 보강만 추가한다.
+assert.deepEqual(
+  escalationResume.steps,
+  ['coder', 'hermes', 'qa', 'verifier', 'hermes-retry-1', 'reporter']
+);
+assert.equal(
+  escalationResume.steps.filter((step) => step.startsWith('coder')).length,
+  1,
+  'escalation resume must not rerun coder'
+);
+assert.ok(!escalationResume.steps.includes('planner'), 'escalation resume must not run planner after coder');
+// 보강 대상인 검증 스텝과 최종 감독/보고는 반드시 실행된다.
+assert.ok(escalationResume.steps.includes('qa'), 'escalation resume must run qa');
+assert.ok(escalationResume.steps.includes('verifier'), 'escalation resume must run verifier');
+assert.ok(escalationResume.steps.some((step) => step.startsWith('reporter')), 'reporter must run');
+assert.equal(escalationResume.manifest.reporterSummary.valid, true);
+
+// 절감: 옵트인 쪽이 실행 스텝 수가 더 적어야 한다.
+assert.ok(
+  escalationResume.steps.length < escalation.steps.length,
+  `escalation resume should run fewer steps (${escalationResume.steps.length} vs ${escalation.steps.length})`
+);
+
+// 안전 케이스: review_only에서 승격하면 아직 코드를 쓴 적이 없다. 이때의 승격은
+// "수정이 필요하다"는 뜻이므로 옵트인이 켜져 있어도 건너뛰지 않고 처음부터 돈다.
+// 여기서 coder를 건너뛰면 승격이 아무 수정도 하지 않고 끝난다.
+const escalationFromReview = runHarness('escalate-resume', 'review_only');
+assert.equal(escalationFromReview.manifest.pipelineChanges[0].to, 'safe_fix');
+assert.deepEqual(escalationFromReview.manifest.pipelineChanges[0].skippedSteps, []);
+assert.equal(escalationFromReview.manifest.pipelineChanges[0].resumeStepIndex, 0);
+assert.ok(escalationFromReview.steps.includes('coder'), 'review_only escalation must run coder');
+assert.ok(escalationFromReview.steps.includes('planner'), 'review_only escalation must run planner');
 
 runBlockedHarness();
 runPatchWorkspaceHarness();
