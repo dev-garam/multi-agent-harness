@@ -212,6 +212,36 @@ harness run --repo . --workspace-mode patch "작업 요청"    # patch만 남김
 
 `patch` 모드는 run 종료 시 worktree를 제거하고 patch artifact만 남깁니다. `worktree` 모드는 사람이 산출물을 확인할 수 있도록 worktree를 남깁니다.
 
+#### 이전 run에 이어서 지시하기
+
+하네스는 요청 하나를 받아 파이프라인을 돌고 끝나는 배치 실행입니다. **실행 중인 스텝에 끼어들 수는 없습니다** — CLI가 이미 프롬프트를 받아 돌고 있고 stdin도 막혀 있습니다. 대신 끝난 run의 결과 위에 다음 지시를 쌓을 수 있습니다.
+
+```sh
+harness run "A를 고쳐줘"
+harness run --continue "B도 같이 해줘"        # 가장 최근 run에 이어서
+harness run --continue <runId> "B도 같이"      # 특정 run에 이어서
+```
+
+이어받는 것은 두 가지입니다.
+
+- **변경** — 이전 run의 `changes.patch`를 새 워크스페이스에 적용합니다. 앞선 작업이 살아 있어야 "그것도 같이"가 성립합니다.
+- **맥락** — 원래 요청, 바뀐 파일, 검증 결과, 감독 판단을 컨텍스트로 넣습니다. 스텝 출력 전문은 넣지 않습니다. 이미 끝난 대화이고 다시 넣으면 컨텍스트만 부풀립니다.
+
+```text
+Continuing from: 2026-08-21_165056_030 (previous changes carried into this workspace)
+```
+
+`manifest.continuedFrom`에 어디서 이어졌는지 기록됩니다.
+
+**"A 말고 B"라면 이어받지 마세요.** 격리 실행이 기본이라 이전 변경은 원본에 반영되지 않았습니다. 그냥 새 run을 돌리면 A는 없던 일이 되고, **롤백이 필요 없습니다.**
+
+```sh
+harness run "A를 고쳐줘"       # worktree에만 A 존재. 원본은 그대로
+harness run "B를 고쳐줘"       # 새 worktree, 원본 기준. A는 따라오지 않음
+```
+
+진행 중인 run의 방향을 바꾸고 싶다면 중단(Ctrl+C)하고 새로 시작하는 편이 낫습니다. 끝까지 기다렸다 버리는 것보다 빠르고, 원본은 어느 경우든 그대로입니다.
+
 #### 결과를 원본에 적용하기
 
 두 모드 모두 run이 끝날 때 `runs/<runId>/changes.patch`를 남깁니다. 새로 만든 파일도 `git add -N`으로 포함되므로 이 파일 하나에 변경 전체가 들어갑니다.
