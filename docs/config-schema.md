@@ -202,6 +202,7 @@ These fields configure the harness runtime layer around agent, validation, and t
 - `redaction.enabled` must be boolean. `mode` must be `mask` or `hash`.
 - `context.maxPreviousOutputBytes` and `context.maxStepOutputBytes` must be positive numbers.
 - `context.summarizer.enabled` enables deterministic head/tail context compaction. `mode` must be `deterministic` or `model`; current runtime safely records `model` config but uses deterministic compaction behavior.
+- `supervisor.escalation.skipCompletedSteps` controls how much work is redone when Hermes escalates to `safe_fix`. Default is `false`, which reruns the escalated pipeline from the first step. When enabled, planning and coding are skipped if `coder` already ran, so escalation only adds the verification steps. If no write step has run yet (for example escalating from `review_only`), the pipeline still starts from the beginning because the escalation means work is still needed.
 - `context.selection.enabled` turns on role-aware context selection. Default is `false`, which keeps the previous behavior of passing every prior step output to every step. When enabled, each role receives only the sections its prompt actually needs. `verifier` and `hermes` always receive the full context because their prompts require prior outputs verbatim.
 - `retry.agentRetries` and `retry.validationRetries` must be non-negative integers.
 - `retry.backoffMs` must be a non-negative number.
@@ -220,6 +221,9 @@ These fields configure the harness runtime layer around agent, validation, and t
     "enabled": true,
     "maxSupervisorTurns": 3,
     "maxStepRetries": 1,
+    "escalation": {
+      "skipCompletedSteps": false
+    },
     "agent": {
       "provider": "mock",
       "command": "node",
