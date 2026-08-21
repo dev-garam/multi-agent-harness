@@ -106,7 +106,7 @@ B6로 토큰이 처음 측정 가능해지자 구조적 비용이 드러났다. 
 | B6d | ✅ metrics·show에 역할별/범주별 비용 분해 추가(`byRole`, `byCategory`, `avgCostPerStep`). 재시도 접미사는 base 역할로 정규화. **실측: write 25% vs meta(감독·보고) 75% — 오버헤드가 실제 작업의 3배** | 완료 |
 | B6a | ✅ `previousOutputs`를 역할별로 선별 주입. 누적 문자열을 `src/context-ledger.js`의 섹션 원장으로 바꾸고 역할별 정책 적용(옵트인 `context.selection.enabled`, 기본 off). 실측 절감: reporter 55.8%, 전체 18.0% | 완료 |
 | B6b | ✅ `escalate_to_safe_fix`가 이미 끝낸 계획·구현을 건너뛰고 검증 보강만 이어간다(옵트인 `supervisor.escalation.skipCompletedSteps`). quick_fix→safe_fix 승격 실측 8스텝→6스텝(25% 감소), coder 재실행·planner 제거 | 완료 |
-| B6c | `budget`에 token/cost 상한 추가(현재는 호출 횟수 상한만 존재) | B6로 측정이 가능해져 비로소 의미가 생김 |
+| B6c | ✅ `budget.maxBilledTokens` / `maxCostUsd` 추가. 호출 횟수 상한은 소모량을 묶지 못한다(6번 호출로도 무한정 태울 수 있다). usage는 스텝 후에 알 수 있으므로 누적은 `recordUsage`, 검사는 다음 호출 시작 시점 — `maxRuntimeMs`와 같은 패턴 | 완료 |
 
 ### 어디에 돈이 가는가 (B6d)
 

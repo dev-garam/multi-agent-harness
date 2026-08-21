@@ -307,7 +307,7 @@ function validateBudgetConfig(value, path, issues) {
     issues.push(issue('error', path, 'must be an object'));
     return;
   }
-  for (const key of ['maxAgentSteps', 'maxProviderCalls', 'maxValidationCommands', 'maxRuntimeMs']) {
+  for (const key of ['maxAgentSteps', 'maxProviderCalls', 'maxValidationCommands', 'maxRuntimeMs', 'maxBilledTokens', 'maxCostUsd']) {
     if (value[key] !== undefined) {
       validatePositiveNumber(value[key], `${path}.${key}`, issues);
     }

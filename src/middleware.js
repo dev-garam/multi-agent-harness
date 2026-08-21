@@ -112,7 +112,12 @@ function normalizeBudgetConfig(projectConfig = {}) {
     maxAgentSteps: asPositiveNumber(config.maxAgentSteps),
     maxProviderCalls: asPositiveNumber(config.maxProviderCalls),
     maxValidationCommands: asPositiveNumber(config.maxValidationCommands),
-    maxRuntimeMs: asPositiveNumber(config.maxRuntimeMs)
+    maxRuntimeMs: asPositiveNumber(config.maxRuntimeMs),
+    // 소모량 상한. 호출 횟수 상한만으로는 "호출 6번인데 토큰을 다 태운" 경우를
+    // 막지 못한다. billedTokens는 캐시 토큰을 포함한 실제 소모량이라 과금 모델
+    // (구독/API)과 무관하게 쓸 수 있고, costUsd는 provider가 노출할 때만 채워진다.
+    maxBilledTokens: asPositiveNumber(config.maxBilledTokens),
+    maxCostUsd: asPositiveNumber(config.maxCostUsd)
   };
 }
 
@@ -261,7 +266,9 @@ export function createHarnessRuntime({ projectConfig = {} } = {}) {
       retries: 0,
       fallbacks: 0,
       toolSetups: 0,
-      toolTeardowns: 0
+      toolTeardowns: 0,
+      billedTokens: 0,
+      costUsd: 0
     },
     flags: {},
     values: {}
@@ -371,10 +378,45 @@ export function createHarnessRuntime({ projectConfig = {} } = {}) {
     return result.text;
   }
 
+  /**
+   * 스텝이 끝난 뒤 실제 소모량을 누적한다. usage는 스텝을 실행해봐야 알 수 있으므로
+   * 상한 검사는 다음 스텝 시작 시점(assertBudget)에 이뤄진다. maxRuntimeMs와 같은
+   * 패턴이다 — 초과를 넘어선 뒤에 잡지만, 다음 호출을 막아 폭주를 끊는다.
+   */
+  function recordUsage(usage) {
+    if (!usage || typeof usage !== 'object') {
+      return;
+    }
+    if (Number.isFinite(usage.billedTokens)) {
+      state.counters.billedTokens += usage.billedTokens;
+    }
+    if (Number.isFinite(usage.costUsd)) {
+      state.counters.costUsd += usage.costUsd;
+    }
+  }
+
   function assertBudget(kind, increment = 1) {
     const elapsed = Date.now() - startedAt;
     if (budget.maxRuntimeMs && elapsed > budget.maxRuntimeMs) {
       const error = new Error(`Harness budget exceeded: maxRuntimeMs=${budget.maxRuntimeMs}`);
+      error.code = 'HARNESS_BUDGET_EXCEEDED';
+      throw error;
+    }
+
+    // 소모량 상한: 지금까지 누적이 상한을 넘었으면 다음 호출을 시작하지 않는다.
+    if (budget.maxBilledTokens && state.counters.billedTokens > budget.maxBilledTokens) {
+      const error = new Error(
+        `Harness budget exceeded: maxBilledTokens=${budget.maxBilledTokens} `
+        + `(used ${state.counters.billedTokens})`
+      );
+      error.code = 'HARNESS_BUDGET_EXCEEDED';
+      throw error;
+    }
+    if (budget.maxCostUsd && state.counters.costUsd > budget.maxCostUsd) {
+      const error = new Error(
+        `Harness budget exceeded: maxCostUsd=${budget.maxCostUsd} `
+        + `(used ${state.counters.costUsd.toFixed(4)})`
+      );
       error.code = 'HARNESS_BUDGET_EXCEEDED';
       throw error;
     }
@@ -455,6 +497,7 @@ export function createHarnessRuntime({ projectConfig = {} } = {}) {
     trimStepOutput,
     trimPreviousOutputs,
     assertBudget,
+    recordUsage,
     shouldRetryResult,
     summary
   };
