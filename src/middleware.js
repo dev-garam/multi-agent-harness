@@ -1,13 +1,19 @@
 import crypto from 'node:crypto';
+import { classifyFailure } from './failure.js';
 
 const DEFAULT_CONTEXT_MAX_BYTES = 256 * 1024;
 const DEFAULT_STEP_OUTPUT_MAX_BYTES = 64 * 1024;
 const DEFAULT_CONTEXT_SUMMARY_HEAD_BYTES = 8 * 1024;
 const DEFAULT_CONTEXT_SUMMARY_TAIL_BYTES = 24 * 1024;
-const DEFAULT_RETRY_EXIT_CODES = [124];
+// timeout(124)은 기본 재시도 대상이 아니다. 시간이 다해 죽은 작업을 같은 시간
+// 안에 다시 시키면 대개 같은 결과를 내고 시간만 두 배로 쓴다. 필요하면
+// retry.retryOnExitCodes로 명시적으로 넣을 수 있다.
+const DEFAULT_RETRY_EXIT_CODES = [];
+// timeout 문구('timed out', 'timeout')는 여기 없다. 시간이 다해 죽은 작업을 같은
+// 시간 안에 다시 시키면 대개 같은 결과를 내기 때문이다(exit 124도 같은 이유로
+// DEFAULT_RETRY_EXIT_CODES에서 뺐다). 'etimedout'은 남긴다 — 그것은 작업이 오래
+// 걸린 것이 아니라 연결이 끊긴 것이고, 재시도로 대개 풀린다.
 const DEFAULT_RETRY_PATTERNS = [
-  'timed out',
-  'timeout',
   'rate limit',
   'temporarily unavailable',
   'temporary failure',
@@ -461,6 +467,19 @@ export function createHarnessRuntime({ projectConfig = {} } = {}) {
       return {
         retryable: true,
         reason: `matched stderr pattern "${pattern}"`
+      };
+    }
+
+    // 하네스가 기본으로 아는 유형 판정. timeout처럼 다시 해도 같은 결과가
+    // 나오는 유형은 여기서 재시도하지 않는다고 분명히 말한다.
+    const failure = classifyFailure(result);
+    if (failure) {
+      return {
+        retryable: failure.retryable,
+        reason: failure.retryable
+          ? `${failure.kind} is usually transient`
+          : `${failure.kind}: ${failure.summary}`,
+        failureKind: failure.kind
       };
     }
 

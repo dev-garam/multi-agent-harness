@@ -11,6 +11,7 @@ import { inspectChanges, inspectionSummary } from './inspection.js';
 import { evaluateChangeRisk, evaluatePolicy, evaluateProtectedBranchPolicy, policyFromProjectConfig } from './policy.js';
 import { carryUncommittedFromConfig, finalizeWorkspace, prepareWorkspace, workspaceModeFromOptions, workspaceModeIsExplicit } from './workspace.js';
 import { parseReporterSummary } from './reporter-summary.js';
+import { classifyFailure, formatFailure } from './failure.js';
 import { buildDeterministicReport, reporterModeFromProjectConfig } from './reporter-deterministic.js';
 import { appendSupervisorInstructions, parseSupervisorDecision, supervisorInstructionsSection } from './supervisor.js';
 import { gitSnapshot } from './git.js';
@@ -1059,15 +1060,19 @@ export class PipelineExecutor {
       }
 
       if (result.exitCode !== 0) {
+        // 실패를 유형으로 남긴다. "exit 1"만으로는 사용자가 다음에 뭘 해야 할지 알 수 없다.
+        const failure = classifyFailure(result);
         this.manifest.finishedAt = new Date().toISOString();
         this.manifest.status = 'failed';
+        this.manifest.failure = { stepId: step.id, ...failure };
+        this.manifest.failureReason = failure ? `${failure.kind}: ${failure.summary}` : null;
         this.manifest.workspace = await finalizeWorkspace({
           workspace: this.manifest.workspace,
           runDir: this.runDir
         });
         await this.#teardownTools();
         await this.#saveRuntimeManifest();
-        throw new Error(`Step failed: ${step.id} (exit ${result.exitCode}). See ${this.runDir}`);
+        throw new Error(formatFailure({ stepId: step.id, runDir: this.runDir, failure }));
       }
 
       this.executedSteps.add(baseStep.id);

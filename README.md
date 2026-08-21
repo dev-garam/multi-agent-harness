@@ -974,7 +974,32 @@ agent/validation/tool 실행 주변에는 가벼운 middleware runtime이 붙습
 }
 ```
 
-재시도는 모든 실패에 적용하지 않고 timeout, rate limit, 일시적 provider 오류처럼 retryable로 분류된 실패에만 적용됩니다. provider 로그에서 token/cost usage를 읽을 수 있으면 provider adapter를 통해 manifest에 기록하고, 읽을 수 없으면 `unknown`으로 남깁니다.
+### 실패 유형과 처리
+
+실패는 유형으로 나뉘고 각각 다르게 처리됩니다. `exit 1` 하나로는 다음에 뭘 해야 할지 알 수 없기 때문입니다.
+
+```text
+Step failed: coder (rate-limit, exit 1)
+The provider refused the request because a usage limit was hit.
+Next: Wait and re-run. Enable `retry.agentRetries` with a non-zero `retry.backoffMs` ...
+See runs/2026-08-21_155858_056
+```
+
+| 유형 | 재시도 | 뜻 |
+| --- | --- | --- |
+| `rate-limit` | ✅ | 사용 한도 초과 (429, quota) |
+| `network` | ✅ | 연결 실패 (ECONNRESET, socket hang up, 502/503/504) |
+| `timeout` | ❌ | 시간이 다해 강제 종료됨 |
+| `command-not-found` | ❌ | provider CLI를 시작하지 못함 (ENOENT) |
+| `auth` | ❌ | 인증·권한 거부 (401/403) |
+| `cancelled` | ❌ | 신호로 취소됨 (SIGINT) |
+| `agent-error` | ❌ | 그 외 |
+
+**`timeout`은 재시도하지 않습니다.** 시간이 다해 죽은 작업을 같은 시간 안에 다시 시키면 대개 같은 결과를 내고 시간만 두 배로 씁니다. 대신 요청을 좁히거나 `resources.agentTimeoutMs`를 올리라고 안내합니다. 굳이 재시도하려면 `retry.retryOnExitCodes: [124]`로 명시하면 됩니다 — 명시적 설정이 항상 우선합니다.
+
+분류 결과는 `manifest.failure`에 `kind`/`retryable`/`summary`/`nextStep`으로 남습니다.
+
+재시도는 모든 실패에 적용하지 않고 rate limit, 일시적 네트워크 오류처럼 retryable로 분류된 실패에만 적용됩니다. provider 로그에서 token/cost usage를 읽을 수 있으면 provider adapter를 통해 manifest에 기록하고, 읽을 수 없으면 `unknown`으로 남깁니다.
 
 Claude adapter는 usage를 노출시키기 위해 `--output-format json`으로 실행합니다. stdout이 단일 JSON 문서가 되므로 하네스가 `result` 필드만 뽑아 다음 스텝 컨텍스트에 넣고, 파싱에 실패하면 stdout 원문으로 폴백합니다.
 
