@@ -4,6 +4,10 @@ import { ensureDir, harnessRoot, writeText } from './fs-utils.js';
 
 const QUEUE_STATUSES = ['pending', 'running', 'approval_pending', 'done', 'failed', 'rejected'];
 
+// running에 갇힌 task를 stale로 볼 기준. 하네스 run의 기본 budget(maxRuntimeMs
+// 15분)보다 충분히 크게 잡아 진행 중인 작업을 잘못 죽이지 않는다.
+const DEFAULT_STALE_RUNNING_MS = 60 * 60 * 1000;
+
 function queueRoot() {
   return path.join(harnessRoot, '.harness', 'queue');
 }
@@ -70,6 +74,58 @@ export async function claimPendingTask() {
     }
   }
   return null;
+}
+
+/**
+ * running에 갇힌 task를 회수한다.
+ *
+ * claimPendingTask는 pending -> running으로 rename해 선점한다. 그 뒤 프로세스가
+ * 죽으면(크래시·Ctrl+C·머신 종료) task 파일은 running에 남고, 다음 tick은 pending만
+ * 보므로 그 task는 영원히 처리되지 않는다. 자율 운영에서 이건 오류가 아니라
+ * "조용한 정지"로 나타난다 — 큐에 일이 있는데 tick은 계속 idle을 보고한다.
+ *
+ * 회수는 failed로 보낸다. 자동 재실행하지 않는 이유는 죽은 run이 파일을 이미
+ * 일부 바꿨을 수 있어서다. 무엇이 끝났는지 모르는 채 다시 돌리면 중복 적용
+ * 위험이 있으므로 사람이 판단하도록 남긴다.
+ *
+ * now를 주입할 수 있게 해 시계에 의존하지 않고 테스트한다.
+ */
+export async function reclaimStaleRunning({
+  staleMs = DEFAULT_STALE_RUNNING_MS,
+  now = Date.now()
+} = {}) {
+  await ensureQueueDirs();
+  const running = await listTasks('running');
+  const reclaimed = [];
+
+  for (const task of running) {
+    const startedAt = Date.parse(task.startedAt || task.updatedAt || task.createdAt || '');
+    // 시각을 알 수 없는 task는 건드리지 않는다(판단 근거가 없다).
+    if (!Number.isFinite(startedAt)) {
+      continue;
+    }
+    const age = now - startedAt;
+    if (age < staleMs) {
+      continue;
+    }
+
+    const finishedAt = new Date(now).toISOString();
+    const staleTask = {
+      ...task,
+      status: 'failed',
+      error: `Task was stuck in running for ${Math.round(age / 1000)}s (limit ${Math.round(staleMs / 1000)}s). `
+        + 'The harness process likely exited before finishing. Review the run before retrying.',
+      stale: { reclaimedAt: finishedAt, ageMs: age, staleMs },
+      finishedAt,
+      updatedAt: finishedAt
+    };
+    const from = taskPath('running', task.taskId);
+    await writeJson(from, staleTask);
+    await rename(from, taskPath('failed', task.taskId));
+    reclaimed.push(staleTask);
+  }
+
+  return reclaimed;
 }
 
 function taskSummary(task) {

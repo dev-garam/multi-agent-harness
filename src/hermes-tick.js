@@ -7,6 +7,7 @@ import { createHermesReport } from './hermes-report.js';
 import {
   claimPendingTask,
   ensureQueueDirs,
+  reclaimStaleRunning,
   taskPath
 } from './hermes-queue.js';
 import { formatNotificationSummary, notifyHermesEvent } from './notify.js';
@@ -69,8 +70,13 @@ async function runHarnessTask(task) {
   };
 }
 
-export async function runHermesTick() {
+export async function runHermesTick({ staleRunningMs } = {}) {
   await ensureQueueDirs();
+  // 죽은 tick이 running에 남긴 task를 먼저 회수한다. 이게 없으면 큐에 일이 있는데
+  // tick이 계속 idle을 보고하는 조용한 정지가 생긴다.
+  const reclaimed = await reclaimStaleRunning(
+    staleRunningMs === undefined ? {} : { staleMs: staleRunningMs }
+  );
   // A2b: pending[0]를 원자적 rename으로 선점한다. 동시 tick이 이미 가져간
   // 후보는 건너뛰고, 선점 가능한 게 없으면 idle. 선점 성공 시 task 파일은
   // 이미 running 디렉터리에 있다.
@@ -78,7 +84,8 @@ export async function runHermesTick() {
   if (!claimed) {
     const result = {
       status: 'idle',
-      message: 'No pending tasks.'
+      message: 'No pending tasks.',
+      reclaimed
     };
     const report = await createHermesReport({ kind: 'tick', tickResult: result });
     return {
@@ -127,7 +134,8 @@ export async function runHermesTick() {
     await rename(runningPath, taskPath('approval_pending', task.taskId));
     const result = {
       status: 'approval_pending',
-      task: approvalTask
+      task: approvalTask,
+      reclaimed
     };
     const report = await createHermesReport({ kind: 'tick', tickResult: result });
     const notifications = await notifyHermesEvent({
@@ -179,7 +187,8 @@ export async function runHermesTick() {
 
   const result = {
     status: finishedStatus,
-    task: finishedTask
+    task: finishedTask,
+    reclaimed
   };
   const report = await createHermesReport({ kind: 'tick', tickResult: result });
   const notifications = await notifyHermesEvent({
@@ -203,10 +212,19 @@ export async function runHermesTick() {
   };
 }
 
+function reclaimedLine(result) {
+  const reclaimed = result.reclaimed || [];
+  if (reclaimed.length === 0) {
+    return null;
+  }
+  return `Reclaimed ${reclaimed.length} stale running task(s) -> failed: ${reclaimed.map((task) => task.taskId).join(', ')}`;
+}
+
 export function formatHermesTick(result) {
   if (result.status === 'idle') {
     return [
       'Hermes tick',
+      reclaimedLine(result),
       result.message,
       result.reportPath ? `Report: ${result.reportPath}` : null
     ].filter(Boolean).join('\n');
@@ -214,6 +232,7 @@ export function formatHermesTick(result) {
 
   return [
     'Hermes tick',
+    reclaimedLine(result),
     `Task: ${result.task.taskId}`,
     `Status: ${result.status}`,
     `Pipeline: ${result.task.pipeline}`,

@@ -345,7 +345,7 @@ harness hermes report
 - `queue`: pending/running/done/failed task 상태를 요약합니다.
 - `approve`: approval pending task를 승인하고 다시 pending으로 이동합니다.
 - `reject`: approval pending task를 rejected로 이동합니다.
-- `tick`: pending task 하나를 꺼내 `harness run`으로 실행하고 done/failed로 이동합니다. 사람 승인이 필요한 task는 실행하지 않고 approval pending으로 이동합니다.
+- `tick`: pending task 하나를 꺼내 `harness run`으로 실행하고 done/failed로 이동합니다. 사람 승인이 필요한 task는 실행하지 않고 approval pending으로 이동합니다. 실행 전에 running에 갇힌 stale task를 먼저 회수합니다.
 - `memory rebuild`: `runs/` manifest를 `.harness/memory/runs.jsonl`과 repo 요약으로 재생성합니다.
 - `memory search`: memory index에서 요청, repo, pipeline, status, Hermes action 기준으로 검색합니다.
 - `feedback`: 특정 run에 대한 사용자 평가를 저장하고 memory rebuild 시 plan 근거에 반영합니다.
@@ -366,6 +366,40 @@ feedback은 하네스 루트의 `.harness/feedback/` 아래에 저장됩니다. 
 promotion 기록은 하네스 루트의 `.harness/promotions/` 아래에 저장됩니다. `--apply`도 프로젝트 설정과 prompt를 직접 수정하지 않고, 대상 repo에서 검토 후 적용할 수 있는 `.harness.json` 후보 diff와 promotion marker 파일 diff를 `.patch`로 함께 남깁니다.
 report artifact는 하네스 루트의 `.harness/reports/` 아래에 저장됩니다. `hermes tick`은 idle, done, failed 결과마다 tick report를 자동으로 남깁니다.
 외부 알림은 `hermes.notifications.channels`에 adapter를 설정하면 `tick` 결과와 report path를 전송합니다. env key가 없으면 실패하지 않고 skipped로 기록됩니다.
+
+### 중단 복구
+
+하네스 실행 자체는 무한루프에 빠지지 않도록 여러 상한이 걸려 있습니다.
+
+| 상한 | 대상 |
+| --- | --- |
+| `budget.maxRuntimeMs` | run 전체 경과 시간 |
+| `budget.maxAgentSteps` / `maxProviderCalls` | agent 호출 횟수 |
+| `budget.maxValidationCommands` | validation 실행 횟수 |
+| `supervisor.maxSupervisorTurns` | Hermes 판단 반복 |
+| `supervisor.maxStepRetries` | 같은 스텝 재실행 |
+| agent/validation `timeoutMs` | 개별 프로세스 (SIGTERM 후 SIGKILL) |
+
+승격은 run당 한 번만 일어납니다. 다만 `maxRuntimeMs`는 agent·validation을 호출하는 시점에 검사하므로, 초과를 감지하는 시점이 실제 초과 순간보다 늦을 수 있습니다.
+
+정작 복구가 필요한 건 **프로세스가 중간에 죽은 경우**입니다.
+
+**큐에 갇힌 task.** `hermes tick`은 pending task를 running으로 옮겨 선점합니다. 그 직후 프로세스가 죽으면(크래시, Ctrl+C, 머신 종료) task가 running에 남고, 다음 tick은 pending만 보므로 그 task는 영원히 처리되지 않습니다. 오류로 드러나지 않고 tick이 계속 `idle`을 보고하는 **조용한 정지**가 됩니다.
+
+`tick`은 실행 전에 running을 훑어 1시간 이상 갇힌 task를 `failed`로 회수하고 원인을 기록합니다.
+
+```text
+Hermes tick
+Reclaimed 1 stale running task(s) -> failed: 2026-08-21_...
+```
+
+자동으로 pending에 되돌리지는 않습니다. 죽은 run이 파일을 이미 일부 바꿨을 수 있어, 무엇이 끝났는지 모르는 채 다시 돌리면 중복 적용 위험이 있기 때문입니다. `approve`로 다시 큐에 넣기 전에 해당 run을 확인하세요.
+
+**끝나지 않은 run.** manifest에 최종 status나 `finishedAt`이 없는 run은 성공도 실패도 아닙니다. `harness metrics`가 이를 따로 셉니다.
+
+```text
+Interrupted: 2 run(s) never finished (no final status)
+```
 
 ## Run Viewer
 

@@ -57,6 +57,21 @@ assert.equal(metrics.providerSuccessRate.codex.successRate, 0);
 // 평균 소요 시간: (10000 + 4000 + 6000) / 3 = 6667(반올림).
 assert.equal(metrics.avgDurationMs, 6667);
 
+// 중단된 run: 최종 status나 finishedAt이 없으면 성공도 실패도 아니다.
+// 그냥 두면 영구히 unknown으로 남아 지표를 오염시키므로 따로 센다.
+assert.equal(metrics.interruptedRuns, 0, 'fixtures all finished');
+const withInterrupted = computeMetrics([
+  ...manifests,
+  // 프로세스가 죽어 status/finishedAt이 없는 run.
+  { agent: { provider: 'claude' }, steps: [{ type: 'agent', stepId: 'coder', status: 'succeeded' }], startedAt: '2026-07-07T00:00:00.000Z' },
+  // status는 있으나 finishedAt이 없는 경우도 중단으로 본다.
+  { status: 'succeeded', agent: { provider: 'claude' }, steps: [], startedAt: '2026-07-07T00:00:00.000Z' }
+]);
+assert.equal(withInterrupted.interruptedRuns, 2);
+assert.match(formatMetrics(withInterrupted), /Interrupted: 2 run\(s\) never finished/);
+// 중단 run이 없으면 그 줄 자체가 나오지 않는다(노이즈 방지).
+assert.equal(/Interrupted:/.test(formatMetrics(metrics)), false);
+
 // 빈 입력도 안전하게 0 을 낸다.
 const empty = computeMetrics([]);
 assert.equal(empty.total, 0);

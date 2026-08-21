@@ -54,6 +54,7 @@ export function computeMetrics(manifests = []) {
   // 토큰/비용은 usage를 실제로 파싱할 수 있었던 run만 집계한다. 구버전 manifest나
   // usage를 노출하지 않는 provider까지 분모에 넣으면 평균이 0으로 희석된다.
   let usageRuns = 0;
+  let interrupted = 0;
   const usageTotals = {
     totalTokens: 0,
     billedTokens: 0,
@@ -70,6 +71,13 @@ export function computeMetrics(manifests = []) {
   for (const manifest of manifests) {
     const status = manifest.status || 'unknown';
     byStatus[status] = (byStatus[status] || 0) + 1;
+
+    // 중단된 run: 최종 status나 finishedAt이 없다. 하네스 프로세스가 끝까지 가지
+    // 못한 것(크래시·Ctrl+C·머신 종료)이라 성공도 실패도 아니다. 그냥 두면
+    // 영구히 unknown으로 남아 지표를 오염시키므로 따로 센다.
+    if (!manifest.status || !manifest.finishedAt) {
+      interrupted += 1;
+    }
 
     // 복구율: validation 스텝이 실패했지만 최종적으로 succeeded 한 run.
     const hadValidationFailure = (manifest.steps || []).some(
@@ -160,6 +168,7 @@ export function computeMetrics(manifests = []) {
     byStatus,
     recoveryRate: rate(recovered, recoverable),
     recoverableRuns: recoverable,
+    interruptedRuns: interrupted,
     rerunRate: rate(rerun, total),
     humanReviewRate: rate(humanReview, total),
     providerSuccessRate: Object.fromEntries(
@@ -229,6 +238,9 @@ export function formatMetrics(metrics) {
     `Total runs: ${metrics.total}`,
     `Status: ${statusLine || '(none)'}`,
     `Recovery rate: ${pct(metrics.recoveryRate)} (${metrics.recoverableRuns} run(s) had validation failures)`,
+    ...(metrics.interruptedRuns > 0
+      ? [`Interrupted: ${metrics.interruptedRuns} run(s) never finished (no final status)`]
+      : []),
     `Rerun rate: ${pct(metrics.rerunRate)}`,
     `Human-review rate: ${pct(metrics.humanReviewRate)}`,
     `Avg duration: ${metrics.avgDurationMs} ms`,
