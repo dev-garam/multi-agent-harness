@@ -74,7 +74,10 @@ function supervisorConfigFromProjectConfig(projectConfig = {}) {
     escalation: {
       // 안전 기본값: 기존처럼 승격 시 파이프라인을 처음부터 다시 돈다.
       skipCompletedSteps: escalation.skipCompletedSteps === true
-    }
+    },
+    // validation이 실패한 상태에서 supervisor가 continue를 내면 재검증을 한 번
+    // 강제한다. 명시적으로 false를 준 경우에만 끈다.
+    forceRevalidateOnFailure: supervisor.forceRevalidateOnFailure !== false
   };
 }
 
@@ -538,6 +541,9 @@ export class PipelineExecutor {
     this.escalatedToSafeFix = this.selected.pipelineName === 'safe_fix';
     // 승격 시 이미 끝낸 작업을 다시 돌리지 않기 위해 실행한 base step을 기록한다.
     this.executedSteps = new Set();
+    // 잘못된 continue를 재검증으로 되돌리는 것은 run당 1회다. 무제한이면
+    // continue -> 재검증 -> continue -> ... 로 루프가 된다.
+    this.forcedRevalidations = 0;
     this.stepIndex = 0;
   }
 
@@ -1103,6 +1109,49 @@ export class PipelineExecutor {
   }
 
   /**
+   * 검증 실패 상태의 continue를 재검증으로 되돌린다.
+   *
+   * supervisor가 continue를 내도 하네스는 activeValidationFailures가 남아 있으면
+   * 런을 failed로 끝낸다. 즉 이 조합에서는 supervisor의 판단이 반영되지도 않고
+   * 복구도 일어나지 않는다 — 실측한 validation 실패 75건이 전부 이 경로였고
+   * 복구율이 0%인 이유다.
+   *
+   * 재검증 기회를 한 번 준다. run당 1회로 제한하는 이유는 명확하다: 무제한이면
+   * continue -> 재검증 -> continue 로 루프가 된다. 두 번째 continue는 그대로 둔다.
+   */
+  #overrideUnsafeContinue(decision) {
+    if (decision.nextAction !== 'continue') {
+      return null;
+    }
+    if (!this.supervisorConfig.forceRevalidateOnFailure) {
+      return null;
+    }
+    if (this.activeValidationFailures.length === 0) {
+      return null;
+    }
+    if (this.forcedRevalidations > 0) {
+      return null;
+    }
+    // supervisor 턴 예산이 남아 있어야 재검증 후 다시 판단할 수 있다.
+    if (this.supervisorTurns >= this.supervisorConfig.maxSupervisorTurns) {
+      return null;
+    }
+    const targetStep = findValidationTargetStep(this.selected.pipeline.steps, this.validationAfter, null);
+    if (!targetStep) {
+      return null;
+    }
+
+    this.forcedRevalidations += 1;
+    return {
+      from: 'continue',
+      to: 'run_validation',
+      targetStep: targetStep.id,
+      reason: `${this.activeValidationFailures.length} validation failure(s) still open`,
+      attempt: this.forcedRevalidations
+    };
+  }
+
+  /**
    * safe_fix로 승격할 때 어디서부터 이어갈지 정한다.
    *
    * 승격의 의미는 "검증을 보강한다"이다. 이미 코드를 쓴 뒤라면 계획·구현을 다시
@@ -1161,6 +1210,18 @@ export class PipelineExecutor {
       sourcePath: result.finalPath,
       createdAt: new Date().toISOString()
     };
+    // validation이 실패했는데 continue가 나오면 그대로 두지 않는다. 하네스는
+    // 어차피 검증 실패를 failed로 처리하므로, continue를 받아주면 복구를
+    // 시도조차 하지 않고 끝난다(실측 75건 전부 이 경로였다). 재검증 기회를
+    // 한 번 주고, 그래도 continue가 나오면 그때는 그대로 둔다.
+    const overridden = this.#overrideUnsafeContinue(decision);
+    if (overridden) {
+      decisionRecord.overriddenBy = overridden;
+      decision.nextAction = overridden.to;
+      decision.targetStep = overridden.targetStep;
+      console.error(`Harness override: continue -> ${overridden.to} (${overridden.reason})`);
+    }
+
     this.manifest.supervisorDecisions.push(decisionRecord);
     this.harnessRuntime.hook('hermes:after-decision', {
       nextAction: decision.nextAction,

@@ -326,6 +326,21 @@ Hermes가 사용할 수 있는 액션은 다음과 같습니다.
 
 켜면 supervisor를 호출하기 **전에** 런을 실패로 끝냅니다. `hermes`와 `reporter` provider 호출도 함께 아낍니다. 기본값은 `false`입니다 — coder가 "이미 고쳐져 있어 바꿀 게 없다"고 정당하게 판단하는 경우가 있고, 그때는 Hermes가 맥락을 보고 판단하는 편이 낫습니다. `--policy-approved`로 우회합니다.
 
+### 검증 실패 상태의 continue는 되돌립니다
+
+`validation`이 실패한 상태에서 Hermes가 `continue`를 내면 하네스가 이를 **재검증으로 되돌립니다.**
+
+이 조합은 그대로 두면 아무 의미가 없습니다. 하네스는 어차피 검증 실패가 남아 있으면 런을 실패로 끝내므로, `continue`를 받아주면 **판단이 반영되지도 않고 복구도 일어나지 않은 채** 끝납니다. 실측한 검증 실패 75건이 전부 이 경로였고, 복구율이 0%였던 이유입니다.
+
+```text
+Hermes decision: continue (success)
+Harness override: continue -> run_validation (1 validation failure(s) still open)
+```
+
+**되돌리기는 run당 1회입니다.** 무제한이면 `continue` → 재검증 → `continue` 로 루프가 됩니다. 재검증 후 다시 `continue`가 나오면 그때는 그대로 두고 실패로 끝냅니다. `supervisor.maxSupervisorTurns` 예산이 남아 있을 때만 발동합니다.
+
+뒤집은 사실은 `supervisorDecisions[].overriddenBy`에 남고, **원래 결정도 함께 보존**됩니다. `supervisor.forceRevalidateOnFailure: false`로 끌 수 있습니다.
+
 Hermes 결정은 `manifest.json`의 `supervisorDecisions`에 기록됩니다. 파이프라인 승격은 `pipelineChanges`에 기록되며, 건너뛴 스텝은 `skippedSteps`와 `resumeStepIndex`로 남습니다.
 
 ### 승격 시 재실행 범위
