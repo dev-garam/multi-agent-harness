@@ -17,7 +17,7 @@
 - Hermes supervisor가 validation 결과를 읽고 재검증, 재실행, safe pipeline 승격, 사람 검토 요청을 결정합니다.
 - Hermes operator가 queue, approval, memory, feedback, promotion, report를 관리합니다.
 - `harness show`와 `harness watch`로 manifest를 사람이 읽기 좋게 확인합니다.
-- `harness metrics`로 전체 run을 집계해 복구율, 재실행률, human-review율, provider별 성공률, 평균 소요 시간을 확인합니다.
+- `harness metrics`로 전체 run을 집계해 복구율, 재실행률, human-review율, provider별 성공률, 평균 소요 시간, 토큰/비용 소비를 확인합니다.
 - `harness clean`과 `harness clean --worktrees`로 오래된 run/worktree 산출물을 정리합니다.
 - 모든 run은 `runs/<runId>/manifest.json`, prompt, stdout/stderr, 최종 markdown report를 남깁니다.
 
@@ -146,7 +146,7 @@ harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
 - `init-project`: 대상 프로젝트를 읽어 `.harness.json` 기본 파일을 만들고 package scripts/git branch를 가능한 범위에서 자동 반영합니다.
 - `install-ide-task`: 대상 프로젝트의 `.vscode/tasks.json`에 `Harness: Run` 작업을 추가합니다.
 - `watch`: `runs/`의 manifest 변화를 관찰하며 run, step, validation, Hermes decision, 완료 상태를 터미널에 표시합니다.
-- `metrics`: `runs/`의 모든 manifest를 읽어 복구율, 재실행률, human-review율, provider별 성공률, 평균 소요 시간을 집계합니다. `--json`으로 기계 판독용 출력을 냅니다.
+- `metrics`: `runs/`의 모든 manifest를 읽어 복구율, 재실행률, human-review율, provider별 성공률, 평균 소요 시간, 토큰/비용 소비를 집계합니다. `--json`으로 기계 판독용 출력을 냅니다.
 - `clean`: 오래된 `runs/` 디렉터리를 `runs/.trash/`로 이동하거나, `--worktrees`로 isolated worktree를 정리합니다.
 
 ## 파이프라인
@@ -792,6 +792,22 @@ Claude adapter는 usage를 노출시키기 위해 `--output-format json`으로 �
 | `agentTurns` | agent CLI가 스텝 하나를 처리하며 돈 내부 turn 수 |
 
 실측 예(README 한 줄 수정, `quick_fix`, provider 호출 3회): `totalTokens` 7,370인데 `billedTokens`는 319,510입니다. 즉 `totalTokens`만 보면 실제 소비의 2.3%만 보게 됩니다. 스텝마다 새 CLI 프로세스가 뜨므로 스텝 간 캐시가 이어지지 않고, 각 스텝이 repo 컨텍스트를 새로 적재하는 비용이 여기에 잡힙니다.
+
+run 하나는 `harness show`, 전체 추이는 `harness metrics`로 봅니다.
+
+```text
+Token usage (measured in 1/499 run(s))
+  Billed tokens:   319,510 (avg 319,510/run)
+  Cache read:      274,920 (86.0% of billed)
+  Cache creation:  37,220
+  Input + output:  7,370
+  Agent turns:     11
+  Cost USD:        $0.6935 (avg $0.6935/run)
+  By pipeline:
+    quick_fix: $0.6935, 319,510 billed (1 run(s))
+```
+
+`measured in N/M`의 격차 자체가 지표입니다. usage를 노출하지 않는 provider나 구버전 manifest는 분모에서 빠지므로, 이 비율이 낮으면 "소비가 적은 것"이 아니라 "측정이 안 되고 있는 것"입니다. 판정 기준은 파싱 상태가 아니라 실제 값의 유무입니다.
 
 각 run은 `prompt-cache.json`도 생성합니다. 이 artifact는 prompt template hash, static project config hash, validation command hash를 담으며, 이후 prompt/context cache 최적화나 회귀 비교에 사용할 수 있습니다.
 
