@@ -196,6 +196,10 @@ e2e 테스트로 세 경로를 고정했다: 재검증 통과 시 복구(기존�
 
 명시적 설정은 여전히 우선한다. `retry.retryOnExitCodes: [124]`로 timeout 재시도를 되살릴 수 있다.
 
+**실패 원인을 metrics로 관측한다(2026-08-21).** `classifyRunFailure`가 run 수준 원인(정책 차단/검증/agent/budget)과 agent 실패 세부 유형을 합쳐 하나의 라벨로 낸다(`agent:rate-limit`). `manifest.failure`는 나중에 추가된 필드라 과거 run에는 없으므로, 실패한 스텝에 `classifyFailure`를 다시 돌려 같은 분류를 얻는다 — 이미 쌓인 405건이 그대로 읽힌다.
+
+`→ retryable cause` 줄이 재시도 설정 판단의 근거다. 현재 2건이고 그마저 오늘 만든 테스트 run이므로, **"재시도를 켜도 건질 것이 없다"는 판단이 이제 데이터로 뒷받침된다.** 실사용에서 rate limit이나 네트워크 실패가 실제로 쌓이면 이 숫자가 올라가고 그때 재검토하면 된다.
+
 **남은 것: agent 실패의 재시도 횟수가 기본 0회다.** `retryOnExitCodes`(timeout 124)와 `retryOnStderrPatterns`(rate limit, ENOENT 등) 분류기는 잘 만들어져 있는데 `agentRetries`/`validationRetries` 기본값이 0이라 한 번도 발동하지 않는다. 실제로 `2026-07-07_170119_373`에서 coder가 `spawn claude ENOENT`로 죽었을 때 재시도 없이 끝났다. 기본값을 1로 올리는 것은 비용·시간이 늘어나는 변경이라 별도 판단이 필요하다.
 
 ### ⏳ 남음 (후속)

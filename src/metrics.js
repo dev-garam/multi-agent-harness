@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { harnessRoot } from './fs-utils.js';
 import { costAvailableFromSummary } from './usage.js';
+import { classifyFailure } from './failure.js';
 
 /**
  * manifest 배열에서 하네스 품질 지표를 계산한다(순수 함수, 부작용 없음).
@@ -47,6 +48,60 @@ function percentile(sorted, fraction) {
   return sorted[index];
 }
 
+/**
+ * run이 왜 실패했는지 한 가지로 정한다.
+ *
+ * 실패는 두 층위다. run 수준(정책 차단인가, 검증 실패인가, agent가 죽었나)과
+ * agent 실패의 세부 유형(timeout인가, 한도 초과인가). 둘을 합쳐 하나의 라벨로
+ * 낸다 — `agent:rate-limit` 처럼.
+ *
+ * manifest.failure는 나중에 추가된 필드라 과거 run에는 없다. 그때는 실패한 agent
+ * 스텝에 classifyFailure를 다시 돌려 같은 분류를 얻는다. 그래야 이미 쌓인 run도
+ * 읽을 수 있다.
+ */
+export function classifyRunFailure(manifest = {}) {
+  if (manifest.status !== 'failed') {
+    return null;
+  }
+
+  if (manifest.policyBlock) {
+    return `policy-block:${manifest.policyBlock.kind}`;
+  }
+
+  const steps = manifest.steps || [];
+  const failedAgent = [...steps].reverse().find((step) => step.type === 'agent' && step.status === 'failed');
+  if (failedAgent) {
+    const failure = manifest.failure && manifest.failure.kind
+      ? manifest.failure
+      : classifyFailure(failedAgent);
+    return `agent:${failure?.kind || 'agent-error'}`;
+  }
+
+  if (steps.some((step) => step.type === 'validation' && step.status === 'failed')) {
+    return 'validation';
+  }
+
+  const reason = String(manifest.failureReason || '');
+  if (/budget/i.test(reason)) {
+    return 'budget';
+  }
+  if (/policy/i.test(reason)) {
+    return 'policy';
+  }
+
+  const decisions = manifest.supervisorDecisions || [];
+  if (decisions.some((entry) => ['stop_failed', 'request_human_review'].includes(entry.nextAction))) {
+    return 'supervisor-stopped';
+  }
+
+  return 'unknown';
+}
+
+/** 이 라벨이 재시도로 풀릴 수 있는 유형인지. 재시도 설정 판단의 근거가 된다. */
+function labelIsRetryable(label) {
+  return label === 'agent:rate-limit' || label === 'agent:network';
+}
+
 export function categoryOfRole(role) {
   return ROLE_CATEGORY[role] || 'other';
 }
@@ -65,6 +120,8 @@ export function computeMetrics(manifests = []) {
   // usage를 노출하지 않는 provider까지 분모에 넣으면 평균이 0으로 희석된다.
   let usageRuns = 0;
   let interrupted = 0;
+  const byFailure = {};
+  let retryableFailures = 0;
   const usageTotals = {
     totalTokens: 0,
     billedTokens: 0,
@@ -105,6 +162,15 @@ export function computeMetrics(manifests = []) {
       recoverable += 1;
       if (status === 'succeeded') {
         recovered += 1;
+      }
+    }
+
+    // 실패 원인 분류. 어떤 실패가 자주 나는지 모르면 무엇을 고쳐야 할지도 모른다.
+    const failureLabel = classifyRunFailure(manifest);
+    if (failureLabel) {
+      byFailure[failureLabel] = (byFailure[failureLabel] || 0) + 1;
+      if (labelIsRetryable(failureLabel)) {
+        retryableFailures += 1;
       }
     }
 
@@ -192,6 +258,8 @@ export function computeMetrics(manifests = []) {
     recoveryRate: rate(recovered, recoverable),
     recoverableRuns: recoverable,
     interruptedRuns: interrupted,
+    byFailure,
+    retryableFailures,
     rerunRate: rate(rerun, total),
     humanReviewRate: rate(humanReview, total),
     providerSuccessRate: Object.fromEntries(
@@ -282,6 +350,23 @@ export function formatMetrics(metrics) {
     `Avg duration: ${metrics.avgDurationMs} ms`,
     'Provider success:'
   ];
+  const failureEntries = Object.entries(metrics.byFailure || {}).sort((left, right) => right[1] - left[1]);
+  if (failureEntries.length > 0) {
+    const failedTotal = failureEntries.reduce((sum, [, count]) => sum + count, 0);
+    lines.push('', `Failures by cause (${failedTotal} failed run(s)):`);
+    for (const [label, count] of failureEntries) {
+      lines.push(`  ${label.padEnd(26)} ${String(count).padStart(4)}  ${pct(count / failedTotal)}`);
+    }
+    // 재시도 설정을 켤지 판단하는 근거다. 0이면 켜도 건질 것이 없다.
+    lines.push(
+      `  ${'→ retryable cause'.padEnd(26)} ${String(metrics.retryableFailures).padStart(4)}`
+        + (metrics.retryableFailures === 0
+          ? '  (nothing to gain from retries yet)'
+          : '  (retry.agentRetries + backoffMs would target these)')
+    );
+    lines.push('');
+  }
+
   const providerEntries = Object.entries(metrics.providerSuccessRate);
   if (providerEntries.length === 0) {
     lines.push('  (none)');

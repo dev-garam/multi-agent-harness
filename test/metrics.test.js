@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { categoryOfRole, computeMetrics, formatMetrics } from '../src/metrics.js';
+import { categoryOfRole, classifyRunFailure, computeMetrics, formatMetrics } from '../src/metrics.js';
 
 // fixture manifest 3건으로 순수 함수 computeMetrics 를 검증한다.
 const manifests = [
@@ -288,3 +288,110 @@ assert.ok(
 );
 
 console.log('metrics usage aggregation tests passed');
+
+// ---------------------------------------------------------------------------
+// 실패 원인 분류. 어떤 실패가 자주 나는지 모르면 무엇을 고쳐야 할지도 모른다.
+//
+// 실패는 두 층위다: run 수준(정책 차단/검증/agent)과 agent 실패의 세부 유형.
+// 둘을 합쳐 하나의 라벨로 낸다(`agent:rate-limit`).
+// ---------------------------------------------------------------------------
+assert.equal(classifyRunFailure({ status: 'succeeded' }), null, 'successful runs have no failure cause');
+assert.equal(classifyRunFailure({}), null);
+
+// 정책 차단이 가장 우선한다. 차단된 런은 다른 신호가 있어도 차단이 원인이다.
+assert.equal(
+  classifyRunFailure({
+    status: 'failed',
+    policyBlock: { kind: 'no-change' },
+    steps: [{ type: 'agent', stepId: 'coder', status: 'failed', exitCode: 1 }]
+  }),
+  'policy-block:no-change'
+);
+
+// manifest.failure가 있으면 그 유형을 쓴다.
+assert.equal(
+  classifyRunFailure({
+    status: 'failed',
+    failure: { kind: 'rate-limit' },
+    steps: [{ type: 'agent', stepId: 'coder', status: 'failed', exitCode: 1 }]
+  }),
+  'agent:rate-limit'
+);
+
+// manifest.failure는 나중에 추가된 필드다. 과거 run은 실패한 스텝을 다시 분류해
+// 같은 답을 얻어야 한다. 그래야 이미 쌓인 run도 읽을 수 있다.
+assert.equal(
+  classifyRunFailure({
+    status: 'failed',
+    steps: [{ type: 'agent', stepId: 'coder', status: 'failed', exitCode: 124, timedOut: true }]
+  }),
+  'agent:timeout',
+  'old manifests are classified from their steps'
+);
+assert.equal(
+  classifyRunFailure({
+    status: 'failed',
+    steps: [{ type: 'agent', stepId: 'coder', status: 'failed', exitCode: 1, stderrTail: 'spawn claude ENOENT' }]
+  }),
+  'agent:command-not-found'
+);
+
+// agent가 죽지 않았고 검증만 실패한 경우.
+assert.equal(
+  classifyRunFailure({
+    status: 'failed',
+    steps: [
+      { type: 'agent', stepId: 'coder', status: 'succeeded' },
+      { type: 'validation', stepId: 'test', status: 'failed', exitCode: 1 }
+    ]
+  }),
+  'validation'
+);
+
+assert.equal(
+  classifyRunFailure({ status: 'failed', steps: [], failureReason: 'Harness budget exceeded: maxAgentSteps=8' }),
+  'budget'
+);
+assert.equal(
+  classifyRunFailure({
+    status: 'failed',
+    steps: [],
+    supervisorDecisions: [{ nextAction: 'request_human_review' }]
+  }),
+  'supervisor-stopped'
+);
+assert.equal(classifyRunFailure({ status: 'failed', steps: [] }), 'unknown');
+
+// 집계와 retryable 카운트.
+const failureMetrics = computeMetrics([
+  { status: 'failed', agent: { provider: 'claude' }, steps: [], failure: { kind: 'rate-limit' },
+    // agent 스텝이 있어야 agent: 라벨이 붙는다.
+    ...{ steps: [{ type: 'agent', stepId: 'coder', status: 'failed', exitCode: 1 }] } },
+  { status: 'failed', agent: { provider: 'claude' },
+    steps: [{ type: 'agent', stepId: 'coder', status: 'failed', exitCode: 124, timedOut: true }] },
+  { status: 'failed', agent: { provider: 'claude' }, policyBlock: { kind: 'change-risk' }, steps: [] },
+  { status: 'succeeded', agent: { provider: 'claude' }, steps: [] }
+]);
+assert.equal(failureMetrics.byFailure['agent:rate-limit'], 1);
+assert.equal(failureMetrics.byFailure['agent:timeout'], 1);
+assert.equal(failureMetrics.byFailure['policy-block:change-risk'], 1);
+assert.equal(failureMetrics.byFailure.unknown, undefined, 'successful runs are not counted');
+
+// retryable은 rate-limit / network 뿐이다. timeout은 세지 않는다 —
+// 재시도를 켤지 판단하는 근거이므로 낙관적으로 세면 안 된다.
+assert.equal(failureMetrics.retryableFailures, 1);
+
+const failureText = formatMetrics(failureMetrics);
+assert.match(failureText, /Failures by cause \(3 failed run\(s\)\)/);
+assert.match(failureText, /agent:rate-limit/);
+assert.match(failureText, /→ retryable cause\s+1/);
+
+// retryable이 0이면 재시도를 켜도 건질 것이 없다고 분명히 말한다.
+const noRetryable = computeMetrics([
+  { status: 'failed', agent: { provider: 'claude' },
+    steps: [{ type: 'agent', stepId: 'coder', status: 'failed', exitCode: 124, timedOut: true }] }
+]);
+assert.equal(noRetryable.retryableFailures, 0);
+assert.match(formatMetrics(noRetryable), /nothing to gain from retries yet/);
+
+console.log('metrics failure aggregation tests passed');
