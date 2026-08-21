@@ -14,8 +14,8 @@ function parseRunTimestamp(name) {
   return new Date(`${match.groups.date}T${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}.${ms}`);
 }
 
-export async function cleanRuns({ days = 7, keep = 5, dryRun = false, exclude = [] } = {}) {
-  const runsDir = path.join(harnessRoot, 'runs');
+export async function cleanRuns({ days = 7, keep = 5, dryRun = false, exclude = [], runsDir: configuredRunsDir } = {}) {
+  const runsDir = configuredRunsDir || path.join(harnessRoot, 'runs');
   const trashDir = path.join(runsDir, '.trash');
   await ensureDir(trashDir);
   const excludedRuns = new Set(exclude);
@@ -27,6 +27,18 @@ export async function cleanRuns({ days = 7, keep = 5, dryRun = false, exclude = 
     .map((entry) => ({ name: entry.name, timestamp: parseRunTimestamp(entry.name) }))
     .filter((entry) => entry.timestamp)
     .sort((left, right) => right.timestamp - left.timestamp);
+  const interrupted = [];
+
+  for (const run of runDirs) {
+    const manifest = await readManifest(path.join(runsDir, run.name));
+    if (manifest && (!manifest.status || !manifest.finishedAt)) {
+      interrupted.push(run.name);
+    }
+  }
+
+  if (interrupted.length > 0) {
+    console.log(`Interrupted: ${interrupted.length} run(s) never finished.`);
+  }
 
   const protectedRuns = new Set(runDirs.slice(0, Number(keep)).map((entry) => entry.name));
   const targets = runDirs.filter((entry) => {
@@ -57,7 +69,8 @@ export async function cleanRuns({ days = 7, keep = 5, dryRun = false, exclude = 
     dryRun: Boolean(dryRun),
     excludedRuns: [...excludedRuns],
     matched: targets.length,
-    moved
+    moved,
+    interrupted
   };
 }
 

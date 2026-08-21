@@ -79,7 +79,7 @@
 
 2. **끝나지 않은 run.** 최종 status나 finishedAt이 없는 manifest가 실제로 2건 있었다(`2026-07-06_142509_962`, `2026-07-06_143844_338` — 둘 다 hermes까지 성공하고 reporter 전에 종료). 영구히 `unknown`으로 남아 지표를 오염시킨다. → metrics에 `interruptedRuns`로 따로 센다.
 
-남은 후속: 중단된 run의 워크스페이스(worktree) 정리는 `harness clean --worktrees`로 수동 처리해야 한다. run 단위 finally는 프로세스가 SIGKILL되면 실행되지 않는다.
+후속: `harness clean`이 중단된 run을 감지해 보고한다(아래 dogfooding 항목). 중단된 run의 워크스페이스 제거는 여전히 `harness clean --worktrees`로 처리한다 — run 단위 finally는 프로세스가 SIGKILL되면 실행되지 않는다.
 
 ### 소모량을 사용자에게 어떻게 보여줄 것인가 (2026-08-21)
 
@@ -259,6 +259,21 @@ reporter가 결정론이 되면 남는 LLM 스텝은 hermes뿐인데, hermes는 
 안전 케이스를 함께 고정했다. `review_only`에서 승격하면 아직 쓰기 스텝이 없으므로 옵트인이 켜져 있어도 처음부터 실행한다. 여기서 `coder`를 건너뛰면 승격이 아무 수정도 하지 않고 끝난다.
 
 부수 관찰: `{{PROJECT_CONFIG}}`가 모든 스텝 프롬프트에 전문 주입된다. mock 데모에서 `.harness.json`에 필드 하나를 추가하자 6개 프롬프트가 각각 95바이트씩 늘었다. 설정이 커질수록 모든 스텝이 비싸진다.
+
+## dogfooding: harness clean 중단 감지 (2026-08-21)
+
+앞선 벤치마크가 "하네스는 결과 품질을 올리지 않는다"를 보여준 뒤, 그러면 실제로 쓸 때 어떤지 보기 위해 하네스에게 하네스를 고치게 했다. 과제는 이 문서가 "수동 처리해야 한다"고 남겨둔 갭이었다: `harness clean`이 중단된 run을 감지하지 못하는 것.
+
+결과: **성공.** `quick_fix` / codex / worktree 모드, validation 3종(test·check·eval-ready) 통과, hermes `continue(success)`, 최종 status succeeded.
+
+관찰된 것 네 가지.
+
+1. **요구하지 않은 설계 개선을 했다.** `cleanRuns`에 `runsDir` 파라미터를 추가했다. 요구사항에 없었지만 임시 디렉터리로 테스트하려면 필요하다. 테스트를 쓰라는 요구가 설계 개선으로 이어진 셈이다.
+2. **생성된 테스트가 요구 범위를 덮었다.** status 없음 / finishedAt 없음 / 정상 / manifest 없음 / manifest 파싱 실패, 그리고 console 출력까지 검증한다.
+3. **worktree 모드의 마찰:** 결과가 `runs/<runId>/worktree`에 남고 원본 반영은 사람이 한다. 이번에는 파일 3개를 직접 복사했다. 안전한 기본값의 대가지만, 반복하면 부담이 된다. patch 모드도 마찬가지로 사람이 적용해야 한다.
+4. **provider별 usage 노출 차이가 드러났다.** codex는 `billedTokens`만 채우고 `costUsd`·`turns`는 비운다(claude는 전부 채운다). 오늘 만든 비용 분해 지표가 provider에 따라 부분적으로만 작동한다는 뜻이다. `costUsd` 기반 비교는 provider를 섞으면 성립하지 않는다.
+
+교훈은 기존 것과 일치한다 — **명확·안전·독립적인 작업에는 dogfooding이 잘 맞는다.** 이번 과제는 범위가 한 함수와 새 테스트 파일 하나로 닫혀 있었고, 판정 기준(validation 통과)이 결정론적이었다.
 
 ## dogfooding 교훈 (이번 세션)
 
