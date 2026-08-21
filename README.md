@@ -376,6 +376,7 @@ report artifact는 하네스 루트의 `.harness/reports/` 아래에 저장됩�
 | `budget.maxRuntimeMs` | run 전체 경과 시간 |
 | `budget.maxAgentSteps` / `maxProviderCalls` | agent 호출 횟수 |
 | `budget.maxValidationCommands` | validation 실행 횟수 |
+| `budget.maxBilledTokens` / `maxCostUsd` | 실제 소모량 (캐시 토큰 포함) |
 | `supervisor.maxSupervisorTurns` | Hermes 판단 반복 |
 | `supervisor.maxStepRetries` | 같은 스텝 재실행 |
 | agent/validation `timeoutMs` | 개별 프로세스 (SIGTERM 후 SIGKILL) |
@@ -461,7 +462,9 @@ harness show --json <runId>
     "maxAgentSteps": 8,
     "maxProviderCalls": 8,
     "maxValidationCommands": 12,
-    "maxRuntimeMs": 900000
+    "maxRuntimeMs": 900000,
+    "maxBilledTokens": 2000000,
+    "maxCostUsd": 5
   },
   "supervisor": {
     "enabled": true,

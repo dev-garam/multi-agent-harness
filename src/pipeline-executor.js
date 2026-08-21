@@ -612,6 +612,8 @@ export class PipelineExecutor {
         const retryDecision = this.harnessRuntime.shouldRetryResult(result, 'agent');
         result.retryable = retryDecision.retryable;
         result.retryReason = retryDecision.reason;
+        // 실제 소모량을 누적한다. 다음 스텝 시작 시 budget 상한 검사에 쓰인다.
+        this.harnessRuntime.recordUsage(result.usage);
         await appendManifestStep(this.runDir, this.manifest, result);
         this.harnessRuntime.hook('step:after', {
           stepId: step.id,

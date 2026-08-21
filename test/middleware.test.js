@@ -96,3 +96,56 @@ assert.ok(
 );
 
 console.log('middleware tests passed');
+
+// ---------------------------------------------------------------------------
+// B6c: 소모량 상한(billedTokens / costUsd).
+// 호출 횟수 상한만으로는 "호출 6번인데 토큰을 다 태운" 경우를 막지 못한다.
+// usage는 스텝을 실행해봐야 알 수 있으므로, 누적은 recordUsage로 하고 검사는
+// 다음 호출 시작 시점(assertBudget)에 한다 — maxRuntimeMs와 같은 패턴이다.
+// ---------------------------------------------------------------------------
+{
+  const runtime = createHarnessRuntime({ projectConfig: { budget: { maxBilledTokens: 100000 } } });
+  // 아직 아무것도 안 썼으면 통과한다.
+  runtime.assertBudget('agent');
+  runtime.recordUsage({ billedTokens: 60000, costUsd: 0.2 });
+  runtime.assertBudget('agent');
+  assert.equal(runtime.state.counters.billedTokens, 60000);
+
+  // 상한을 넘긴 뒤에는 다음 호출을 시작하지 않는다.
+  runtime.recordUsage({ billedTokens: 60000, costUsd: 0.2 });
+  assert.throws(
+    () => runtime.assertBudget('agent'),
+    (error) => error.code === 'HARNESS_BUDGET_EXCEEDED' && /maxBilledTokens=100000/.test(error.message)
+  );
+}
+
+{
+  const runtime = createHarnessRuntime({ projectConfig: { budget: { maxCostUsd: 1 } } });
+  runtime.recordUsage({ billedTokens: 10, costUsd: 1.5 });
+  assert.throws(
+    () => runtime.assertBudget('validation'),
+    (error) => error.code === 'HARNESS_BUDGET_EXCEEDED' && /maxCostUsd=1/.test(error.message)
+  );
+}
+
+{
+  // 상한을 설정하지 않으면 아무리 써도 제한이 없다(하위 호환).
+  const runtime = createHarnessRuntime({ projectConfig: {} });
+  runtime.recordUsage({ billedTokens: 9_999_999, costUsd: 999 });
+  runtime.assertBudget('agent');
+  assert.equal(runtime.state.counters.billedTokens, 9_999_999);
+}
+
+{
+  // usage를 파싱하지 못한 스텝(null/미상)은 누적에 영향을 주지 않는다.
+  const runtime = createHarnessRuntime({ projectConfig: { budget: { maxBilledTokens: 100 } } });
+  runtime.recordUsage(null);
+  runtime.recordUsage(undefined);
+  runtime.recordUsage({ billedTokens: null, costUsd: null });
+  runtime.recordUsage({ status: 'unknown' });
+  runtime.assertBudget('agent');
+  assert.equal(runtime.state.counters.billedTokens, 0);
+  assert.equal(runtime.state.counters.costUsd, 0);
+}
+
+console.log('middleware usage budget tests passed');

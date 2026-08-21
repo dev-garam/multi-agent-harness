@@ -377,3 +377,13 @@ Default is `false`. A coder can legitimately conclude that nothing needs changin
 In deterministic mode the supervisor also uses a compact prompt (`prompts/hermes-concise.md`), because no agent reads its prose any more. The evaluation checklist and decision rules are identical; only the output format is compressed, so supervision depth is unchanged. Anything the user must know goes into `reason` and `instructions`, which the report quotes verbatim.
 
 Measured on a one-line README change with real `claude`: $0.6935 -> $0.3665 (47.2% lower), with `coder` cost unchanged.
+
+### budget.maxBilledTokens / budget.maxCostUsd
+
+Call-count limits (`maxProviderCalls`) do not bound consumption: six calls can still burn an unbounded number of tokens. These two limits bound the actual spend of a run.
+
+`maxBilledTokens` counts `input + output + cacheCreation + cacheRead`, which is the real consumption regardless of how the provider bills it, so it works for both subscription and API auth. `maxCostUsd` only applies when the provider reports a cost.
+
+Usage is only known after a step finishes, so the limit is checked when the *next* agent or validation call starts — the same pattern as `maxRuntimeMs`. A run can therefore overshoot the limit by one step, but it cannot keep running past it. Steps whose usage could not be parsed contribute nothing, so an unparsed provider never trips the limit.
+
+Both are unset by default.
