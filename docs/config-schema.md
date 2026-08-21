@@ -369,3 +369,11 @@ A write step (`coder`) that runs but changes nothing means the request was not i
 The harness always records the signal on the inspection step as `noChangeAssessment` (`writeStepRan`, `changedFiles`, `suspicious`) and surfaces it to the supervisor as a `changeAssessment` line. Set `policy.blockOnNoChanges: true` to make it a hard gate: the run stops and is marked failed with `policyBlock.kind = "no-change"` before the supervisor is called, which also saves the provider calls for `hermes` and `reporter`.
 
 Default is `false`. A coder can legitimately conclude that nothing needs changing (the fix is already present), and in that case letting the supervisor judge the context is better. Bypass a block with `--policy-approved`.
+
+### reporter.mode
+
+`agent` (default) makes the final report with a provider call. `deterministic` builds it from the manifest instead: changed files, validation results, supervisor decision and instructions, and the usage summary are all already recorded there. The output contract is unchanged — human-readable markdown followed by one fenced JSON block, parseable by the same `parseReporterSummary`.
+
+In deterministic mode the supervisor also uses a compact prompt (`prompts/hermes-concise.md`), because no agent reads its prose any more. The evaluation checklist and decision rules are identical; only the output format is compressed, so supervision depth is unchanged. Anything the user must know goes into `reason` and `instructions`, which the report quotes verbatim.
+
+Measured on a one-line README change with real `claude`: $0.6935 -> $0.3665 (47.2% lower), with `coder` cost unchanged.

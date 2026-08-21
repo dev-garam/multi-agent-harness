@@ -7,6 +7,11 @@
       "sha256": "31dc5f1a5e07fbd10a5278d0475b4907cf87c685dfc07e12c17929a0bbd89108"
     },
     {
+      "path": "prompts/hermes-concise.md",
+      "bytes": 3552,
+      "sha256": "3001f907147d397f8b3ac1aa2064646b447f949216d29101aa49377a02a823d8"
+    },
+    {
       "path": "prompts/hermes.md",
       "bytes": 2948,
       "sha256": "d4b3c88450363c3affe957965ef9f63be50cfbcc7ad9074140f09da2796785e1"
