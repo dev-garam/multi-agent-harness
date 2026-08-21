@@ -73,6 +73,25 @@ function validationFailures(steps) {
     }));
 }
 
+/**
+ * 스텝별 비용을 비싼 순으로 보여준다. 어느 역할이 돈을 쓰는지가 run 하나를
+ * 진단할 때 가장 먼저 필요한 정보다(실측에서 감독·보고가 실제 작업의 3배였다).
+ */
+function stepCostLines(usage = {}) {
+  const entries = (usage.entries || []).filter((entry) => (entry.costUsd || 0) > 0);
+  if (entries.length === 0) {
+    return [];
+  }
+  const total = entries.reduce((sum, entry) => sum + (entry.costUsd || 0), 0);
+  const lines = ['Step costs:'];
+  for (const entry of [...entries].sort((left, right) => (right.costUsd || 0) - (left.costUsd || 0))) {
+    const share = total > 0 ? ` (${((entry.costUsd / total) * 100).toFixed(1)}%)` : '';
+    const turns = entry.turns ? `, ${entry.turns} turn(s)` : '';
+    lines.push(`  ${entry.stepId}: $${Number(entry.costUsd).toFixed(4)}${share}${turns}`);
+  }
+  return lines;
+}
+
 function agentUsageSummary(steps) {
   const usageEntries = steps
     .filter((step) => step.type === 'agent' && step.usage)
@@ -254,6 +273,7 @@ export function formatRunSummary(summary) {
     `Agent turns: ${summary.usage.agentTurns ?? 0}`,
     `Cost USD: ${summary.usage.costUsd}`,
     `Remaining tokens: ${formatNullable(summary.usage.remainingTokens)}`,
+    ...stepCostLines(summary.usage),
     '',
     'Prompt Cache',
     `Path: ${formatNullable(summary.promptCache?.path)}`,

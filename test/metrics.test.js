@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { computeMetrics, formatMetrics } from '../src/metrics.js';
+import { categoryOfRole, computeMetrics, formatMetrics } from '../src/metrics.js';
 
 // fixture manifest 3건으로 순수 함수 computeMetrics 를 검증한다.
 const manifests = [
@@ -93,7 +93,12 @@ const usageManifests = [
       cacheReadTokens: 275000,
       cacheCreationTokens: 37000,
       agentTurns: 11,
-      costUsd: 0.7
+      costUsd: 0.7,
+      entries: [
+        { stepId: 'coder', billedTokens: 100000, costUsd: 0.2, turns: 4 },
+        { stepId: 'hermes', billedTokens: 120000, costUsd: 0.3, turns: 4 },
+        { stepId: 'reporter', billedTokens: 100000, costUsd: 0.2, turns: 3 }
+      ]
     }
   },
   {
@@ -110,7 +115,16 @@ const usageManifests = [
       cacheReadTokens: 600000,
       cacheCreationTokens: 60000,
       agentTurns: 22,
-      costUsd: 1.3
+      costUsd: 1.3,
+      entries: [
+        { stepId: 'planner', billedTokens: 80000, costUsd: 0.1, turns: 2 },
+        // 재시도 스텝은 base 역할(coder)로 정규화되어야 한다.
+        { stepId: 'coder-retry-1', billedTokens: 200000, costUsd: 0.4, turns: 6 },
+        { stepId: 'qa', billedTokens: 100000, costUsd: 0.2, turns: 3 },
+        { stepId: 'verifier', billedTokens: 100000, costUsd: 0.2, turns: 3 },
+        { stepId: 'hermes', billedTokens: 120000, costUsd: 0.3, turns: 5 },
+        { stepId: 'reporter', billedTokens: 80000, costUsd: 0.1, turns: 3 }
+      ]
     }
   },
   {
@@ -176,5 +190,45 @@ assert.match(usageText, /Cache read:\s+875,000 \(87\.5% of billed\)/);
 assert.match(usageText, /Cost USD:\s+\$2\.0000/);
 // 비싼 파이프라인이 먼저 나온다.
 assert.ok(usageText.indexOf('safe_fix:') < usageText.indexOf('quick_fix:'));
+
+// ---------------------------------------------------------------------------
+// 역할별/범주별 비용 분해. "어디에 돈이 가는가"를 판단하려면 실제 코드 변경과
+// 그걸 검토·감독·보고하는 비용을 나눠 봐야 한다.
+// ---------------------------------------------------------------------------
+assert.equal(usageMetrics.usage.agentSteps, 9);
+assert.equal(Number(usageMetrics.usage.avgCostPerStep.toFixed(4)), Number((2 / 9).toFixed(4)));
+
+// 재시도 접미사는 base 역할로 정규화된다(coder-retry-1 -> coder).
+assert.equal(categoryOfRole('coder'), 'write');
+assert.equal(categoryOfRole('hermes'), 'meta');
+assert.equal(categoryOfRole('verifier'), 'review');
+assert.equal(categoryOfRole('custom-step'), 'other');
+
+assert.equal(usageMetrics.usage.byRole.coder.steps, 2);
+assert.equal(Number(usageMetrics.usage.byRole.coder.costUsd.toFixed(4)), 0.6);
+assert.equal(usageMetrics.usage.byRole.coder.billedTokens, 300000);
+assert.equal(usageMetrics.usage.byRole['coder-retry-1'], undefined, 'retry suffix must normalize to base role');
+assert.equal(Number(usageMetrics.usage.byRole.hermes.costUsd.toFixed(4)), 0.6);
+
+// 범주 합계: write 0.6 / review 0.5 / meta 0.9 = 2.0
+assert.equal(Number(usageMetrics.usage.byCategory.write.costUsd.toFixed(4)), 0.6);
+assert.equal(Number(usageMetrics.usage.byCategory.review.costUsd.toFixed(4)), 0.5);
+assert.equal(Number(usageMetrics.usage.byCategory.meta.costUsd.toFixed(4)), 0.9);
+assert.equal(usageMetrics.usage.byCategory.meta.steps, 4);
+
+// 범주 비용 합은 전체 비용과 같아야 한다(누락 없이 분해됐는지).
+const categorySum = Object.values(usageMetrics.usage.byCategory)
+  .reduce((total, counts) => total + counts.costUsd, 0);
+assert.equal(Number(categorySum.toFixed(4)), Number(usageMetrics.usage.costUsd.toFixed(4)));
+
+// 포맷: 비싼 범주·역할이 먼저 오고 비중이 표시된다.
+assert.match(usageText, /By category:/);
+assert.match(usageText, /meta\s+\(supervise\/report\): \$0\.9000 45\.0%/);
+assert.match(usageText, /By role:/);
+assert.match(usageText, /Agent steps:\s+9/);
+assert.ok(
+  usageText.indexOf('meta   (supervise/report)') < usageText.indexOf('write  (code changes)'),
+  'more expensive category comes first'
+);
 
 console.log('metrics usage aggregation tests passed');

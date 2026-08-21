@@ -12,6 +12,35 @@ import { harnessRoot } from './fs-utils.js';
  * - providerSuccessRate: agent.provider 별 성공률
  * - avgDurationMs: startedAt~finishedAt 평균
  */
+/**
+ * 스텝 id를 역할로 정규화한다(coder-retry-1 -> coder).
+ */
+function roleOf(stepId) {
+  return String(stepId || 'unknown').replace(/-retry-\d+$/, '');
+}
+
+/**
+ * 역할을 비용 범주로 묶는다. 어디에 돈이 가는지 판단하려면 "실제로 코드를 바꾸는
+ * 일"과 "그걸 검토·감독·보고하는 일"을 나눠 봐야 한다.
+ *
+ * - write:  파일을 실제로 바꾸는 스텝
+ * - review: 계획·검증 스텝
+ * - meta:   감독·보고 스텝(작업 자체가 아니라 작업에 대한 작업)
+ */
+const ROLE_CATEGORY = {
+  coder: 'write',
+  planner: 'review',
+  qa: 'review',
+  verifier: 'review',
+  reviewer: 'review',
+  hermes: 'meta',
+  reporter: 'meta'
+};
+
+export function categoryOfRole(role) {
+  return ROLE_CATEGORY[role] || 'other';
+}
+
 export function computeMetrics(manifests = []) {
   const total = manifests.length;
   const byStatus = {};
@@ -34,6 +63,9 @@ export function computeMetrics(manifests = []) {
     costUsd: 0
   };
   const usageByPipeline = {};
+  const usageByRole = {};
+  const usageByCategory = {};
+  let agentStepCount = 0;
 
   for (const manifest of manifests) {
     const status = manifest.status || 'unknown';
@@ -89,6 +121,23 @@ export function computeMetrics(manifests = []) {
       usageByPipeline[pipeline].billedTokens += usage.billedTokens || 0;
       usageByPipeline[pipeline].costUsd += usage.costUsd || 0;
 
+      // 역할별/범주별 분해. entries는 agent 스텝 단위라 여기서 어느 역할이 돈을
+      // 쓰는지 드러난다(실측에서 감독·보고가 실제 작업의 3배였다).
+      for (const entry of usage.entries || []) {
+        const role = roleOf(entry.stepId);
+        const category = categoryOfRole(role);
+        agentStepCount += 1;
+        for (const [bucket, key] of [[usageByRole, role], [usageByCategory, category]]) {
+          if (!bucket[key]) {
+            bucket[key] = { steps: 0, billedTokens: 0, costUsd: 0, turns: 0 };
+          }
+          bucket[key].steps += 1;
+          bucket[key].billedTokens += entry.billedTokens || 0;
+          bucket[key].costUsd += entry.costUsd || 0;
+          bucket[key].turns += entry.turns || 0;
+        }
+      }
+
       byProvider[provider].usageRuns = (byProvider[provider].usageRuns || 0) + 1;
       byProvider[provider].billedTokens = (byProvider[provider].billedTokens || 0) + (usage.billedTokens || 0);
       byProvider[provider].costUsd = (byProvider[provider].costUsd || 0) + (usage.costUsd || 0);
@@ -130,7 +179,13 @@ export function computeMetrics(manifests = []) {
       avgCostUsd: usageRuns > 0 ? usageTotals.costUsd / usageRuns : 0,
       // 캐시 조회 비중. 스텝마다 새 프로세스가 뜨는 구조의 비용이 여기 드러난다.
       cacheReadRatio: rate(usageTotals.cacheReadTokens, usageTotals.billedTokens),
-      byPipeline: usageByPipeline
+      // 스텝 하나를 띄우는 데 드는 평균 비용. 스텝마다 새 CLI 프로세스가 뜨므로
+      // 이 값이 사실상 스텝당 고정비다.
+      agentSteps: agentStepCount,
+      avgCostPerStep: agentStepCount > 0 ? usageTotals.costUsd / agentStepCount : 0,
+      byPipeline: usageByPipeline,
+      byRole: usageByRole,
+      byCategory: usageByCategory
     }
   };
 }
@@ -208,12 +263,43 @@ export function formatMetrics(metrics) {
     `  Cost USD:        ${usd(usage.costUsd)} (avg ${usd(usage.avgCostUsd)}/run)`
   );
 
+  if (usage.agentSteps > 0) {
+    lines.push(`  Agent steps:     ${num(usage.agentSteps)} (avg ${usd(usage.avgCostPerStep)}/step)`);
+  }
+
   const pipelineEntries = Object.entries(usage.byPipeline || {})
     .sort((left, right) => right[1].costUsd - left[1].costUsd);
   if (pipelineEntries.length > 0) {
     lines.push('  By pipeline:');
     for (const [pipeline, counts] of pipelineEntries) {
       lines.push(`    ${pipeline}: ${usd(counts.costUsd)}, ${num(counts.billedTokens)} billed (${counts.runs} run(s))`);
+    }
+  }
+
+  const share = (value) => (usage.costUsd > 0 ? ` ${pct(value / usage.costUsd)}` : '');
+
+  // 범주별: 실제 코드 변경 대비 검토·감독·보고에 얼마가 가는지.
+  const categoryLabels = {
+    write: 'write  (code changes)',
+    review: 'review (plan/verify)',
+    meta: 'meta   (supervise/report)',
+    other: 'other'
+  };
+  const categoryEntries = Object.entries(usage.byCategory || {})
+    .sort((left, right) => right[1].costUsd - left[1].costUsd);
+  if (categoryEntries.length > 0) {
+    lines.push('  By category:');
+    for (const [category, counts] of categoryEntries) {
+      lines.push(`    ${categoryLabels[category] || category}: ${usd(counts.costUsd)}${share(counts.costUsd)}, ${counts.steps} step(s)`);
+    }
+  }
+
+  const roleEntries = Object.entries(usage.byRole || {})
+    .sort((left, right) => right[1].costUsd - left[1].costUsd);
+  if (roleEntries.length > 0) {
+    lines.push('  By role:');
+    for (const [role, counts] of roleEntries) {
+      lines.push(`    ${role}: ${usd(counts.costUsd)}${share(counts.costUsd)}, ${num(counts.billedTokens)} billed, ${counts.turns} turn(s)`);
     }
   }
 

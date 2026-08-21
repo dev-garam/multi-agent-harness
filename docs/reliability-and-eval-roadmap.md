@@ -87,9 +87,36 @@ B6로 토큰이 처음 측정 가능해지자 구조적 비용이 드러났다. 
 | ID | 작업 | 비고 |
 |----|------|------|
 | B6+ | ✅ `harness metrics`에 토큰/비용 집계 추가(billed·캐시·turn·파이프라인별 비용). 측정 대상 판정은 파싱 상태가 아니라 실제 값 유무 기준 — status=parsed인데 값이 0인 구버전 run이 평균을 희석하던 문제를 피한다 | 완료 |
+| B6d | ✅ metrics·show에 역할별/범주별 비용 분해 추가(`byRole`, `byCategory`, `avgCostPerStep`). 재시도 접미사는 base 역할로 정규화. **실측: write 25% vs meta(감독·보고) 75% — 오버헤드가 실제 작업의 3배** | 완료 |
 | B6a | ✅ `previousOutputs`를 역할별로 선별 주입. 누적 문자열을 `src/context-ledger.js`의 섹션 원장으로 바꾸고 역할별 정책 적용(옵트인 `context.selection.enabled`, 기본 off). 실측 절감: reporter 55.8%, 전체 18.0% | 완료 |
 | B6b | ✅ `escalate_to_safe_fix`가 이미 끝낸 계획·구현을 건너뛰고 검증 보강만 이어간다(옵트인 `supervisor.escalation.skipCompletedSteps`). quick_fix→safe_fix 승격 실측 8스텝→6스텝(25% 감소), coder 재실행·planner 제거 | 완료 |
 | B6c | `budget`에 token/cost 상한 추가(현재는 호출 횟수 상한만 존재) | B6로 측정이 가능해져 비로소 의미가 생김 |
+
+### 어디에 돈이 가는가 (B6d)
+
+README 한 줄 수정(`quick_fix`, provider 호출 3회) 실측을 역할별로 분해했다.
+
+| 역할 | 비용 | 비중 | turns | billed |
+|------|-----:|-----:|------:|-------:|
+| hermes | $0.3054 | 44.0% | 4 | 119,269 |
+| reporter | $0.2146 | 30.9% | 3 | 93,163 |
+| coder | $0.1735 | 25.0% | 4 | 107,078 |
+| **합계** | **$0.6935** | | 11 | 319,510 |
+
+**실제 코드 변경 25%, 감독·보고 75%.** 오버헤드가 실제 작업의 3배이고, 단일 최대 항목이 감독(hermes)이다. 한 줄짜리 문서 수정에 $0.69는 작업 난이도가 아니라 구조가 정하는 비용이다.
+
+스텝당 평균 $0.2312가 사실상 고정비다. 별도로 잰 최소 호출(`claude -p "Reply with exactly: ok"`)이 $0.104였다 — 아무 일도 하지 않는 세션 하나를 띄우는 값이다. 스텝을 하나 늘릴 때마다 이 고정비가 붙는다.
+
+구조적 선택지(측정으로 근거가 생긴 것):
+
+| 방향 | 근거 | 비고 |
+|------|------|------|
+| 역할별 모델 차등 | meta 75% | **현재 불가능**(아래 참조). 선행 작업 필요 |
+| reporter를 결정론적 생성으로 | reporter 30.9% | 보고 재료(changedFiles·validation·hermes decision)가 이미 manifest에 있다 |
+| 단순 요청에서 hermes 생략 | hermes 44% | 변경 0건 게이트처럼 값싼 룰로 대체 가능한 구간 |
+| 스텝 수 축소 | 스텝당 $0.23 고정비 | quick_fix가 3스텝인데 단순 수정에 감독·보고가 필요한지 |
+
+**선행 갭: 역할별 모델을 지정할 수단이 없다.** `--model`은 `step.model`에서만 오고, `step`은 `config/pipelines.json`의 파이프라인 정의에서 온다. 그런데 `config/pipelines.json`에는 `model` 필드가 없고, `.harness.json`의 `agents.<role>`은 provider만 바꿀 뿐 model을 step에 주입하지 않는다(`resolveStepAgent`가 전달하지 않음). 즉 "hermes만 더 싼 모델로" 같은 가장 직접적인 절감 수단이 막혀 있다. meta가 75%인 만큼 효과가 큰 항목이다.
 
 ### B6a 측정 결과와 한계
 
