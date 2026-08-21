@@ -188,7 +188,15 @@ fixture와 러너는 자산으로 남긴다. 하네스 자체를 변경할 때 "
 
 e2e 테스트로 세 경로를 고정했다: 재검증 통과 시 복구(기존에 없던 경로), 재검증도 실패할 때 1회만 뒤집고 유한 종료, 옵트아웃 시 기존 동작.
 
-**남은 것: agent 실패의 재시도가 기본 0회다.** `retryOnExitCodes`(timeout 124)와 `retryOnStderrPatterns`(rate limit, ENOENT 등) 분류기는 잘 만들어져 있는데 `agentRetries`/`validationRetries` 기본값이 0이라 한 번도 발동하지 않는다. 실제로 `2026-07-07_170119_373`에서 coder가 `spawn claude ENOENT`로 죽었을 때 재시도 없이 끝났다. 기본값을 1로 올리는 것은 비용·시간이 늘어나는 변경이라 별도 판단이 필요하다.
+**오류 유형별 명확한 처리로 대체했다(2026-08-21).** 재시도 기본값을 올리는 대신 실패를 분류하고 유형에 맞는 처리를 하기로 했다. 실사용 데이터로 재시도 성공률을 추정할 수 없었고(실제 provider agent 실패는 1건, 그것도 영구 오류인 ENOENT), 유형별로 전망이 크게 달랐기 때문이다.
+
+`src/failure.js`가 실패를 7가지로 나눈다: `rate-limit`·`network`(재시도 가능), `timeout`·`command-not-found`·`auth`·`cancelled`·`agent-error`(차단). 각 유형은 무엇이 일어났는지(`summary`)와 다음에 뭘 할지(`nextStep`)를 함께 낸다. 결과는 `manifest.failure`에 남고 사용자에게도 그대로 보인다.
+
+**timeout을 재시도 대상에서 뺀 것이 핵심이다.** 시간이 다해 죽은 작업을 같은 시간 안에 다시 시키면 대개 같은 결과를 내고 시간만 두 배로 쓴다. 작업하면서 timeout이 **두 곳**에서 retryable로 잡히고 있던 것을 발견했다 — `DEFAULT_RETRY_EXIT_CODES`의 124와 `DEFAULT_RETRY_PATTERNS`의 `'timed out'`/`'timeout'`이다. 둘 다 제거했다. `'etimedout'`은 남겼다. 그것은 작업이 오래 걸린 것이 아니라 연결이 끊긴 것이고 재시도로 대개 풀린다.
+
+명시적 설정은 여전히 우선한다. `retry.retryOnExitCodes: [124]`로 timeout 재시도를 되살릴 수 있다.
+
+**남은 것: agent 실패의 재시도 횟수가 기본 0회다.** `retryOnExitCodes`(timeout 124)와 `retryOnStderrPatterns`(rate limit, ENOENT 등) 분류기는 잘 만들어져 있는데 `agentRetries`/`validationRetries` 기본값이 0이라 한 번도 발동하지 않는다. 실제로 `2026-07-07_170119_373`에서 coder가 `spawn claude ENOENT`로 죽었을 때 재시도 없이 끝났다. 기본값을 1로 올리는 것은 비용·시간이 늘어나는 변경이라 별도 판단이 필요하다.
 
 ### ⏳ 남음 (후속)
 
