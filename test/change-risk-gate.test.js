@@ -6,6 +6,9 @@ import path from 'node:path';
 
 // C2b 하드 블록: 실제 diff가 위험(migration 등)하면 policy.blockOnChangeRisk 시
 // 런을 차단하고, --policy-approved면 통과함을 end-to-end로 고정한다.
+//
+// workspaceMode는 patch를 쓴다. 격리 실행이라는 조건은 worktree와 같지만 run 종료 시
+// worktree가 제거되어 테스트가 runs/ 아래에 부산물을 남기지 않는다.
 
 const harnessRoot = path.resolve(new URL('..', import.meta.url).pathname);
 const harnessBin = path.join(harnessRoot, 'bin', 'harness');
@@ -34,7 +37,7 @@ fs.writeFileSync(process.argv[3], 'mock output');
 `);
 writeFileSync(path.join(repo, '.harness.json'), JSON.stringify({
   pipeline: 'quick_fix',
-  workspaceMode: 'worktree',
+  workspaceMode: 'patch',
   protectedBranches: ['main'],
   policy: { blockOnChangeRisk: true },
   agent: {
@@ -83,7 +86,7 @@ fs.writeFileSync(process.argv[3], 'mock output');
 `);
 writeFileSync(path.join(repo2, '.harness.json'), JSON.stringify({
   pipeline: 'quick_fix',
-  workspaceMode: 'worktree',
+  workspaceMode: 'patch',
   protectedBranches: ['main'],
   agent: {
     provider: 'mock',
