@@ -90,7 +90,7 @@ async function carryUncommittedChanges({ repo, worktreePath, runDir }) {
 }
 
 export async function prepareWorkspace({
-  repo, runDir, mode, dryRun, carryUncommitted = false, explicitMode = true
+  repo, runDir, mode, dryRun, carryUncommitted = false, explicitMode = true, basePatchPath = null
 }) {
   if (mode === 'direct' || dryRun) {
     return {
@@ -135,6 +135,22 @@ export async function prepareWorkspace({
     throw new Error(`Failed to create worktree: ${add.stderr || add.stdout}`);
   }
 
+  // 이어받기: 이전 run의 변경을 먼저 얹는다. 그 위에 작업 중 변경을 올려야
+  // 순서가 맞는다(이전 결과 -> 지금 내 편집).
+  let basePatchApplied = false;
+  if (basePatchPath) {
+    const apply = await runCapture('git', ['apply', basePatchPath], { cwd: worktreePath });
+    if (apply.exitCode !== 0) {
+      await runCapture('git', ['worktree', 'remove', '--force', worktreePath], { cwd: repo });
+      throw new Error(
+        `Failed to continue: the previous run's patch does not apply to ${repo}. `
+        + `${(apply.stderr || apply.stdout || '').trim()} `
+        + 'The repo likely moved since that run. Start a fresh run instead.'
+      );
+    }
+    basePatchApplied = true;
+  }
+
   const carried = carryUncommitted
     ? await carryUncommittedChanges({ repo, worktreePath, runDir })
     : { attempted: false };
@@ -157,7 +173,8 @@ export async function prepareWorkspace({
     prepared: true,
     baseCommit: commit.stdout,
     worktreePath,
-    carriedUncommitted: carried
+    carriedUncommitted: carried,
+    basePatchApplied
   };
 }
 

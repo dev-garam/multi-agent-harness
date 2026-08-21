@@ -12,6 +12,8 @@ import { applyRun, formatApplyResult } from './apply.js';
 import { runHarnessEval } from './eval.js';
 import { loadRunManifests, computeMetrics, formatMetrics } from './metrics.js';
 
+const RUN_ID_PATTERN = /^\d{4}-\d{2}-\d{2}_\d{6}(?:_\d{3})?$/;
+
 function usage() {
   return [
     'Usage:',
@@ -36,6 +38,7 @@ function usage() {
     '  --dry-run                         Render prompts and manifest without running agents',
     '  --policy-approved                 Override direct-run policy approval gate',
     '  --carry-uncommitted               Copy uncommitted changes into the isolated workspace',
+    '  --continue [runId]                Continue from a previous run: carry its changes and context',
     '',
     'Hermes subcommands:',
     '  status                            Show queue and memory status',
@@ -112,6 +115,11 @@ function parseArgs(args) {
       options.dryRun = true;
     } else if (arg === '--force') {
       options.force = true;
+    } else if (arg === '--continue') {
+      // runId 형식일 때만 다음 인자를 소비한다. 그러지 않으면
+      // `--continue "작업 요청"` 에서 요청문을 runId로 먹는다.
+      const next = args[index + 1];
+      options.continueFrom = next && RUN_ID_PATTERN.test(next) ? args[++index] : '--latest';
     } else if (arg === '--carry-uncommitted') {
       options.carryUncommitted = true;
     } else if (arg === '--no-carry-uncommitted') {

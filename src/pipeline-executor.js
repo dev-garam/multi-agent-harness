@@ -12,6 +12,7 @@ import { evaluateChangeRisk, evaluatePolicy, evaluateProtectedBranchPolicy, poli
 import { carryUncommittedFromConfig, finalizeWorkspace, prepareWorkspace, workspaceModeFromOptions, workspaceModeIsExplicit } from './workspace.js';
 import { parseReporterSummary } from './reporter-summary.js';
 import { classifyFailure, formatFailure } from './failure.js';
+import { continuationRecord, formatContinuationContext, loadContinuation } from './continuation.js';
 import { buildDeterministicReport, reporterModeFromProjectConfig } from './reporter-deterministic.js';
 import { appendSupervisorInstructions, parseSupervisorDecision, supervisorInstructionsSection } from './supervisor.js';
 import { gitSnapshot } from './git.js';
@@ -318,6 +319,11 @@ export class PipelineExecutor {
   }
 
   async #prepareWorkspaceAndRuntime() {
+    // 이어받기: 이전 run의 변경과 맥락을 가져온다. 실행 중 스텝에 끼어들 수는
+    // 없지만, 끝난 run 위에 다음 지시를 쌓을 수는 있다.
+    this.continuation = this.options.continueFrom
+      ? await loadContinuation(this.options.continueFrom)
+      : null;
     this.runId = timestampId();
     this.runDir = path.join(harnessRoot, 'runs', this.runId);
     await ensureDir(this.runDir);
@@ -338,7 +344,8 @@ export class PipelineExecutor {
         mode: this.workspaceMode,
         dryRun: this.options.dryRun,
         carryUncommitted: carryUncommittedFromConfig(this.options, this.projectConfig),
-        explicitMode: workspaceModeIsExplicit(this.options, this.projectConfig)
+        explicitMode: workspaceModeIsExplicit(this.options, this.projectConfig),
+        basePatchPath: this.continuation?.patchPath || null
       });
     } catch (error) {
       const failedManifest = {
@@ -426,6 +433,9 @@ export class PipelineExecutor {
         ...this.runtime,
         contract: runtimeRunnerContract(this.runtime)
       },
+      continuedFrom: this.continuation
+        ? continuationRecord(this.continuation, { patchApplied: this.workspace.basePatchApplied === true })
+        : null,
       promptCache: this.promptCache,
       policy: {
         mode: 'direct',
@@ -481,6 +491,13 @@ export class PipelineExecutor {
     console.error(`Pipeline: ${this.selected.pipelineName}`);
     console.error(`Agent: ${this.agent.name} (${this.agent.command})`);
     console.error(`Runner: ${this.runtime.mode}${this.runtime.image ? ` (${this.runtime.image})` : ''}`);
+    if (this.continuation) {
+      const applied = this.manifest.continuedFrom?.patchApplied;
+      console.error(
+        `Continuing from: ${this.continuation.runId}`
+          + (applied ? ' (previous changes carried into this workspace)' : ' (context only, no patch carried)')
+      );
+    }
     console.error(`Run dir: ${this.runDir}`);
   }
 
@@ -545,6 +562,13 @@ export class PipelineExecutor {
     // 잘못된 continue를 재검증으로 되돌리는 것은 run당 1회다. 무제한이면
     // continue -> 재검증 -> continue -> ... 로 루프가 된다.
     this.forcedRevalidations = 0;
+    // 이어받은 맥락을 첫 스텝부터 볼 수 있게 원장 맨 앞에 넣는다.
+    if (this.continuation) {
+      this.context.push({
+        kind: 'note',
+        text: formatContinuationContext(this.continuation)
+      });
+    }
     this.stepIndex = 0;
   }
 
