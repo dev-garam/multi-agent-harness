@@ -35,6 +35,7 @@ function usage() {
     '  --runner-image <image>            Docker image used when --runner docker is selected',
     '  --dry-run                         Render prompts and manifest without running agents',
     '  --policy-approved                 Override direct-run policy approval gate',
+    '  --carry-uncommitted               Copy uncommitted changes into the isolated workspace',
     '',
     'Hermes subcommands:',
     '  status                            Show queue and memory status',
@@ -111,6 +112,10 @@ function parseArgs(args) {
       options.dryRun = true;
     } else if (arg === '--force') {
       options.force = true;
+    } else if (arg === '--carry-uncommitted') {
+      options.carryUncommitted = true;
+    } else if (arg === '--no-carry-uncommitted') {
+      options.carryUncommitted = false;
     } else if (arg === '--refresh') {
       options.refresh = true;
     } else if (arg === '--interactive') {

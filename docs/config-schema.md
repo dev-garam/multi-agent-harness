@@ -418,3 +418,13 @@ Provider CLIs report cost in API-equivalent dollars. On a subscription login tha
 Plan names (for example `max-5x`) are deliberately not accepted. Plan structures change, and a hardcoded table would make the harness state something false.
 
 `billedTokens` is the billing-model-neutral figure: it counts real consumption regardless of how the provider charges for it.
+
+### workspace.carryUncommitted
+
+Isolated workspaces (`worktree`, `patch`) are created from `HEAD`, so uncommitted work in the original repo is invisible to the agent by default. That breaks the common flow of editing something and handing part of it to the harness mid-change.
+
+Set `workspace.carryUncommitted: true` (or pass `--carry-uncommitted`) to copy the pending work into the isolated workspace before the run starts. `--no-carry-uncommitted` overrides the config for a single run.
+
+The original repo is never modified, including its index: tracked changes are taken with `git diff HEAD --binary` rather than `git add`, and untracked files are copied using `--exclude-standard` so ignored paths such as `node_modules` are left behind. If carrying fails the workspace is removed and the run stops, because silently running against `HEAD` while the user believes their edits were included is the worst outcome.
+
+Default is `false`.

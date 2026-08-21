@@ -9,7 +9,7 @@ import { runValidationCommand, validationCommandsFromProjectConfig } from './val
 import { trustBoundarySummary } from './trust.js';
 import { inspectChanges, inspectionSummary } from './inspection.js';
 import { evaluateChangeRisk, evaluatePolicy, evaluateProtectedBranchPolicy, policyFromProjectConfig } from './policy.js';
-import { finalizeWorkspace, prepareWorkspace, workspaceModeFromOptions } from './workspace.js';
+import { carryUncommittedFromConfig, finalizeWorkspace, prepareWorkspace, workspaceModeFromOptions } from './workspace.js';
 import { parseReporterSummary } from './reporter-summary.js';
 import { buildDeterministicReport, reporterModeFromProjectConfig } from './reporter-deterministic.js';
 import { appendSupervisorInstructions, parseSupervisorDecision, supervisorInstructionsSection } from './supervisor.js';
@@ -332,7 +332,8 @@ export class PipelineExecutor {
         repo: this.repo,
         runDir: this.runDir,
         mode: this.workspaceMode,
-        dryRun: this.options.dryRun
+        dryRun: this.options.dryRun,
+        carryUncommitted: carryUncommittedFromConfig(this.options, this.projectConfig)
       });
     } catch (error) {
       const failedManifest = {
