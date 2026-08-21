@@ -11,6 +11,7 @@ import { inspectChanges, inspectionSummary } from './inspection.js';
 import { evaluateChangeRisk, evaluatePolicy, evaluateProtectedBranchPolicy, policyFromProjectConfig } from './policy.js';
 import { finalizeWorkspace, prepareWorkspace, workspaceModeFromOptions } from './workspace.js';
 import { parseReporterSummary } from './reporter-summary.js';
+import { buildDeterministicReport, reporterModeFromProjectConfig } from './reporter-deterministic.js';
 import { appendSupervisorInstructions, parseSupervisorDecision, supervisorInstructionsSection } from './supervisor.js';
 import { gitSnapshot } from './git.js';
 import { resourceConfigFromProjectConfig } from './resources.js';
@@ -282,6 +283,8 @@ export class PipelineExecutor {
     this.blockOnChangeRisk = policyFromProjectConfig(this.projectConfig).blockOnChangeRisk === true;
     // 쓰기 스텝이 돌았는데 변경 0건이면 런을 차단한다(옵트인).
     this.blockOnNoChanges = policyFromProjectConfig(this.projectConfig).blockOnNoChanges === true;
+    // reporter를 LLM 대신 manifest 기반 결정론 생성으로 만들지(옵트인).
+    this.reporterMode = reporterModeFromProjectConfig(this.projectConfig);
     const basePolicyDecision = evaluatePolicy({
       request: this.request,
       policy: this.policy,
@@ -850,6 +853,57 @@ export class PipelineExecutor {
     );
   }
 
+  /**
+   * manifest만으로 최종 보고서를 만든다(LLM 호출 없음).
+   *
+   * agent reporter와 같은 산출물 계약을 지킨다: `<stepId>.md` 파일과
+   * manifest.reporterSummary. 다만 provider를 호출하지 않으므로 usage는 0이다.
+   */
+  async #runDeterministicReporter({ step }) {
+    const startedAt = new Date();
+    const finalPath = path.join(this.runDir, `${step.id}.md`);
+    const report = buildDeterministicReport({ manifest: this.manifest, request: this.request });
+    const markdown = this.harnessRuntime.redactText(report.markdown, {
+      surface: 'reporter.deterministic',
+      stepId: step.id
+    }).text;
+    await writeText(finalPath, markdown);
+    const finishedAt = new Date();
+
+    await appendManifestStep(this.runDir, this.manifest, {
+      type: 'agent',
+      stepId: step.id,
+      status: 'succeeded',
+      exitCode: 0,
+      agent: 'harness',
+      command: '(deterministic)',
+      generator: 'deterministic',
+      runtime: this.runtime.mode,
+      startedAt: startedAt.toISOString(),
+      finishedAt: finishedAt.toISOString(),
+      durationMs: finishedAt.getTime() - startedAt.getTime(),
+      finalPath
+    });
+
+    this.manifest.reporterSummary = {
+      ...report.summary,
+      valid: true,
+      schemaErrors: [],
+      generator: 'deterministic',
+      stepId: step.id,
+      sourcePath: finalPath,
+      createdAt: new Date().toISOString()
+    };
+    this.harnessRuntime.recordEvent('reporter:deterministic', {
+      stepId: step.id,
+      status: report.summary.status,
+      changedFiles: report.summary.changedFiles.length,
+      risks: report.summary.risks.length
+    });
+    await this.#saveRuntimeManifest();
+    console.error(`\n== ${step.id} (deterministic) ==`);
+  }
+
   async #executeSteps() {
     while (this.stepIndex < this.selected.pipeline.steps.length) {
       const baseStep = this.selected.pipeline.steps[this.stepIndex];
@@ -879,7 +933,22 @@ export class PipelineExecutor {
       if (contextStats.applied) {
         this.harnessRuntime.recordEvent('context:selection', contextStats);
       }
-      const rawPrompt = await renderPrompt(step, {
+      // reporter가 결정론 모드면 provider를 호출하지 않는다. usage summary는 바로
+      // 위에서 갱신됐으므로 보고서에 그대로 실린다.
+      if (baseStep.id === 'reporter' && this.reporterMode === 'deterministic' && !this.options.dryRun) {
+        this.executedSteps.add(baseStep.id);
+        await this.#runDeterministicReporter({ step });
+        this.stepIndex += 1;
+        continue;
+      }
+
+      // reporter가 결정론이면 hermes 산문의 소비자가 없다. 평가 지시는 그대로 두고
+      // 출력 형식만 압축한 프롬프트로 바꿔 output 토큰을 줄인다(실측에서 hermes
+      // output이 coder의 7배였다). 추론 깊이는 건드리지 않는다.
+      const promptStep = baseStep.id === HERMES_STEP_ID && this.reporterMode === 'deterministic'
+        ? { ...step, prompt: 'prompts/hermes-concise.md' }
+        : step;
+      const rawPrompt = await renderPrompt(promptStep, {
         request: this.request,
         repo: this.executionRepo,
         previousOutputs: this.harnessRuntime.trimPreviousOutputs(

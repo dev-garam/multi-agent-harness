@@ -111,12 +111,46 @@ README 한 줄 수정(`quick_fix`, provider 호출 3회) 실측을 역할별로 
 
 | 방향 | 근거 | 비고 |
 |------|------|------|
-| 역할별 모델 차등 | meta 75% | **현재 불가능**(아래 참조). 선행 작업 필요 |
+| ✅ reporter 결정론화 + hermes 출력 축소 | meta 75% | **완료. $0.6935 -> $0.3665 (47.2%)** |
+| 역할별 모델 차등 | meta 75% | **보류.** 아래 참조 |
 | reporter를 결정론적 생성으로 | reporter 30.9% | 보고 재료(changedFiles·validation·hermes decision)가 이미 manifest에 있다 |
 | 단순 요청에서 hermes 생략 | hermes 44% | 변경 0건 게이트처럼 값싼 룰로 대체 가능한 구간 |
 | 스텝 수 축소 | 스텝당 $0.23 고정비 | quick_fix가 3스텝인데 단순 수정에 감독·보고가 필요한지 |
 
-**선행 갭: 역할별 모델을 지정할 수단이 없다.** `--model`은 `step.model`에서만 오고, `step`은 `config/pipelines.json`의 파이프라인 정의에서 온다. 그런데 `config/pipelines.json`에는 `model` 필드가 없고, `.harness.json`의 `agents.<role>`은 provider만 바꿀 뿐 model을 step에 주입하지 않는다(`resolveStepAgent`가 전달하지 않음). 즉 "hermes만 더 싼 모델로" 같은 가장 직접적인 절감 수단이 막혀 있다. meta가 75%인 만큼 효과가 큰 항목이다.
+### 완료: reporter 결정론화 + hermes 출력 축소
+
+원인은 고정비가 아니라 **출력 토큰**이었다. 캐시 조회는 세 역할이 78k~100k로 비슷했고 차이는 output이었다.
+
+```
+coder     output   645  ->   448B 산출물   $0.1735
+hermes    output 4,495  -> 5,556B 보고서   $0.3054   (coder의 7배)
+reporter  output 2,208  -> 3,409B 보고서   $0.2146
+```
+
+hermes가 산문 감독 보고서를 쓰는데 하네스가 파싱하는 건 JSON 블록뿐이고, 산문의 유일한 소비자는 reporter였다. 그리고 reporter는 그걸 읽고 또 보고서를 썼다 — **같은 내용을 두 번 쓰고 있었다.**
+
+`reporter.mode: "deterministic"`(옵트인)이면 reporter가 manifest에서 보고서를 만들고 provider를 호출하지 않는다. 그러면 hermes 산문의 소비자가 없으므로 hermes도 압축 프롬프트를 쓴다. 평가 항목과 결정 규칙은 동일하게 두고 출력 형식만 압축했다.
+
+| 역할 | 기본 | 적용 후 |
+|------|-----:|-------:|
+| coder | $0.1735 | $0.1739 |
+| hermes | $0.3054 (out 4,495) | $0.1926 (out 1,245) |
+| reporter | $0.2146 | $0.0000 |
+| **합계** | **$0.6935** | **$0.3665 (-47.2%)** |
+
+감독 품질은 유지됐다. 축소 프롬프트에서도 hermes는 `git diff`로 요청 일치를 확인하고, `grep`으로 잔여 원문이 없음을 검증하고, `git status --short`로 범위 이탈을 확인하고, validation이 `echo`라 코드 정합성을 입증하지 않는다는 판단까지 냈다. 산문만 사라지고 증거 기반 추론은 그대로다.
+
+### 보류: 역할별 모델 차등
+
+meta 75%를 줄이는 또 다른 수단이지만 **보류한다.**
+
+reporter가 결정론이 되면 남는 LLM 스텝은 hermes뿐인데, hermes는 추론이 곧 역할이다. 증거 대조·주장 검증·위험 판단을 하고, 실제로 하네스 자체 버그(경로 파싱 off-by-one)를 찾아낸 것도 hermes였다. 게다가 위험한 실패 모드는 파싱 실패가 아니라 **그럴듯하지만 틀린 `continue`**이고, 하네스의 안전 붕괴(파싱 실패 -> human review)는 그걸 잡지 못한다.
+
+결정적으로 **품질 저하를 잴 수단이 없다.** eval의 `supervisorCases`는 파싱 안전 붕괴만 검증하고 판단 품질은 보지 않으며, 실제 provider 결정 표본도 7건뿐이다. 비용은 metrics에 잡히지만 품질은 안 잡히므로 "낮춰보고 확인"이 성립하지 않는다.
+
+재개 조건: supervisor 판단 품질 골든(같은 증거에서 같은 결정을 내는지)이 생기면 그때 다시 본다.
+
+**선행 갭(그때 필요): 역할별 모델을 지정할 수단이 없다.** `--model`은 `step.model`에서만 오고, `step`은 `config/pipelines.json`의 파이프라인 정의에서 온다. 그런데 `config/pipelines.json`에는 `model` 필드가 없고, `.harness.json`의 `agents.<role>`은 provider만 바꿀 뿐 model을 step에 주입하지 않는다(`resolveStepAgent`가 전달하지 않음). 즉 "hermes만 더 싼 모델로" 같은 가장 직접적인 절감 수단이 막혀 있다. meta가 75%인 만큼 효과가 큰 항목이다.
 
 ### B6a 측정 결과와 한계
 
