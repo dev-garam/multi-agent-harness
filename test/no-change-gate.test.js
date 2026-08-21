@@ -40,7 +40,9 @@ function makeRepo(prefix, harnessConfig, mockBody) {
 function baseConfig(extra = {}) {
   return {
     pipeline: 'quick_fix',
-    workspaceMode: 'worktree',
+    // patch 모드: 격리 실행은 worktree와 같지만 run 종료 시 worktree가 제거되어
+    // 테스트가 runs/ 아래에 부산물을 남기지 않는다.
+    workspaceMode: 'patch',
     protectedBranches: ['main'],
     // validation은 통과한다. 변경이 없어도 성공하는 명령을 일부러 쓴다.
     validationCommands: [{ id: 'noop', command: 'echo validation-ok' }],
