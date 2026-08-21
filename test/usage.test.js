@@ -4,7 +4,9 @@ import {
   summarizeManifestUsage,
   formatUsageSummary,
   formatCostLine,
-  billingModeFromProjectConfig
+  billingModeFromProjectConfig,
+  costAvailableFromSummary,
+  turnsAvailableFromSummary
 } from '../src/usage.js';
 
 const jsonUsage = parseProviderUsage('{"usage":{"input_tokens":10,"output_tokens":5,"cost_usd":0.02}}', {
@@ -149,3 +151,47 @@ assert.match(formatUsageSummary({ costUsd: 0.5 }, { billing: 'api' }), /Cost USD
 assert.match(formatUsageSummary({ costUsd: 0.5 }), /API-equivalent/);
 
 console.log('usage cost labeling tests passed');
+
+// ---------------------------------------------------------------------------
+// provider마다 노출하는 항목이 다르다. codex는 billedTokens만 주고 cost/turns는
+// 비운다. null을 0으로 합산하면 "비용 0"과 "비용을 모름"이 구분되지 않는다.
+// ---------------------------------------------------------------------------
+const codexSummary = summarizeManifestUsage({
+  steps: [
+    { type: 'agent', stepId: 'coder', usage: { status: 'parsed', billedTokens: 486612, costUsd: null, turns: null } },
+    { type: 'agent', stepId: 'hermes', usage: { status: 'parsed', billedTokens: 71410, costUsd: null, turns: null } }
+  ]
+});
+assert.equal(codexSummary.billedTokens, 558022, 'tokens are still counted');
+assert.equal(codexSummary.costReported, 0);
+assert.equal(codexSummary.turnsReported, 0);
+assert.equal(codexSummary.costAvailable, false);
+assert.equal(costAvailableFromSummary(codexSummary), false);
+assert.equal(turnsAvailableFromSummary(codexSummary), false);
+
+const codexText = formatUsageSummary(codexSummary);
+assert.match(codexText, /Cost: not reported/);
+assert.match(codexText, /agentTurns: not reported/);
+assert.match(codexText, /billedTokens: 558022/, 'token figures stay visible');
+
+// 비용을 주는 provider는 그대로 표시된다.
+const claudeSummary = summarizeManifestUsage({
+  steps: [{ type: 'agent', stepId: 'coder', usage: { status: 'parsed', billedTokens: 100, costUsd: 0.17, turns: 4 } }]
+});
+assert.equal(claudeSummary.costAvailable, true);
+assert.equal(costAvailableFromSummary(claudeSummary), true);
+assert.match(formatUsageSummary(claudeSummary), /API-equivalent/);
+
+// 하위 호환: costAvailable 필드가 없는 과거 manifest도 entries로 판단한다.
+assert.equal(costAvailableFromSummary({ entries: [{ costUsd: null }, { costUsd: null }] }), false);
+assert.equal(costAvailableFromSummary({ entries: [{ costUsd: null }, { costUsd: 0.1 }] }), true);
+// 판단 근거가 없으면 기존 동작을 유지한다(비용을 감추지 않는다).
+assert.equal(costAvailableFromSummary({}), true);
+assert.equal(costAvailableFromSummary({ entries: [] }), true);
+assert.equal(turnsAvailableFromSummary({}), true);
+
+// 미노출일 때 provider 이름을 밝힌다.
+assert.match(formatCostLine(0, 'unknown', { available: false, provider: 'codex' }), /not reported by codex/);
+assert.match(formatCostLine(0, 'unknown', { available: false }), /not reported by this provider/);
+
+console.log('usage availability tests passed');

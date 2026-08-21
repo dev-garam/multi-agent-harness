@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { harnessRoot } from './fs-utils.js';
-import { formatCostLine } from './usage.js';
+import { costAvailableFromSummary, formatCostLine, turnsAvailableFromSummary } from './usage.js';
 
 const RUN_ID_PATTERN = /^\d{4}-\d{2}-\d{2}_\d{6}(?:_\d{3})?$/;
 
@@ -272,8 +272,13 @@ export function formatRunSummary(summary) {
     `Billed tokens (incl. cache): ${summary.usage.billedTokens ?? 0}`,
     `Cache read tokens: ${summary.usage.cacheReadTokens ?? 0}`,
     `Cache creation tokens: ${summary.usage.cacheCreationTokens ?? 0}`,
-    `Agent turns: ${summary.usage.agentTurns ?? 0}`,
-    formatCostLine(summary.usage.costUsd, summary.billing || 'unknown'),
+    turnsAvailableFromSummary(summary.usage)
+      ? `Agent turns: ${summary.usage.agentTurns ?? 0}`
+      : 'Agent turns: not reported by this provider',
+    formatCostLine(summary.usage.costUsd, summary.billing || 'unknown', {
+      available: costAvailableFromSummary(summary.usage),
+      provider: summary.agent
+    }),
     `Remaining tokens: ${formatNullable(summary.usage.remainingTokens)}`,
     ...stepCostLines(summary.usage),
     '',

@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { harnessRoot } from './fs-utils.js';
+import { costAvailableFromSummary } from './usage.js';
 
 /**
  * manifest 배열에서 하네스 품질 지표를 계산한다(순수 함수, 부작용 없음).
@@ -76,6 +77,11 @@ export function computeMetrics(manifests = []) {
   // 개별 run의 소모량을 모아 분포를 낸다. "$0.69"는 요금제마다 의미가 다르지만
   // "평소 run의 1.8배"는 누구에게나 통한다. 사용자의 상품 정보를 알 필요가 없다.
   const runBilledTokens = [];
+  // 비용을 보고하지 않는 provider(codex 등)의 run을 따로 센다. 이들의 billedTokens는
+  // 집계에 들어가지만 costUsd에는 기여하지 않으므로, 그 사실을 드러내지 않으면
+  // "토큰은 많이 썼는데 비용은 적다"는 잘못된 그림이 된다.
+  const providersWithoutCost = new Set();
+  let runsWithoutCost = 0;
   const usageByRole = {};
   const usageByCategory = {};
   let agentStepCount = 0;
@@ -138,6 +144,10 @@ export function computeMetrics(manifests = []) {
         usageByPipeline[pipeline] = { runs: 0, billedTokens: 0, costUsd: 0 };
       }
       runBilledTokens.push(usage.billedTokens || 0);
+      if (!costAvailableFromSummary(usage)) {
+        runsWithoutCost += 1;
+        providersWithoutCost.add(provider);
+      }
       usageByPipeline[pipeline].runs += 1;
       usageByPipeline[pipeline].billedTokens += usage.billedTokens || 0;
       usageByPipeline[pipeline].costUsd += usage.costUsd || 0;
@@ -216,6 +226,8 @@ export function computeMetrics(manifests = []) {
       })(),
       agentSteps: agentStepCount,
       avgCostPerStep: agentStepCount > 0 ? usageTotals.costUsd / agentStepCount : 0,
+      runsWithoutCost,
+      providersWithoutCost: [...providersWithoutCost],
       byPipeline: usageByPipeline,
       byRole: usageByRole,
       byCategory: usageByCategory
@@ -301,6 +313,14 @@ export function formatMetrics(metrics) {
 
   if (usage.agentSteps > 0) {
     lines.push(`  Agent steps:     ${num(usage.agentSteps)} (avg ${usd(usage.avgCostPerStep)}/step)`);
+  }
+
+  // 비용 미노출 provider가 섞여 있으면 cost 수치를 그대로 비교하면 안 된다.
+  if (usage.runsWithoutCost > 0) {
+    lines.push(
+      `  Note:            ${usage.runsWithoutCost} run(s) report no cost `
+        + `(${usage.providersWithoutCost.join(', ')}); their tokens count, their cost does not.`
+    );
   }
 
   // 요금제를 모르므로 절대 금액 대신 사용자 자신의 이력을 기준선으로 준다.

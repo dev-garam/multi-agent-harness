@@ -163,6 +163,13 @@ export function summarizeManifestUsage(manifest = {}) {
       turns: step.usage.turns ?? null,
       costUsd: step.usage.costUsd ?? null
     }));
+  // provider마다 노출하는 항목이 다르다(codex는 billedTokens만 주고 cost/turns는
+  // 비운다). null을 0으로 합산하면 "비용 0"과 "비용을 모름"이 구분되지 않으므로,
+  // 몇 개 스텝이 실제로 보고했는지를 함께 남긴다.
+  const reported = (key) => entries.filter((entry) => entry[key] !== null && entry[key] !== undefined).length;
+  const costReported = reported('costUsd');
+  const turnsReported = reported('turns');
+
   const providerCalls = manifest.middleware?.state?.counters?.providerCalls ?? 0;
   const maxProviderCalls = manifest.middleware?.config?.budget?.maxProviderCalls ?? null;
   const remainingProviderCalls = maxProviderCalls === null
@@ -182,6 +189,11 @@ export function summarizeManifestUsage(manifest = {}) {
     cacheCreationTokens: sum('cacheCreationTokens'),
     agentTurns: sum('turns'),
     costUsd: entries.reduce((total, entry) => total + (entry.costUsd || 0), 0),
+    costReported,
+    turnsReported,
+    // 아무 스텝도 비용을 보고하지 않았다면 costUsd 0은 "쓰지 않았다"가 아니라
+    // "provider가 알려주지 않는다"는 뜻이다.
+    costAvailable: costReported > 0,
     remainingTokens: null,
     remainingTokensReason: 'provider did not expose token budget',
     entries
@@ -198,7 +210,39 @@ export function summarizeManifestUsage(manifest = {}) {
  * 기본값(unknown)에서는 환산값임을 드러내는 쪽이 안전하다. "$0.69 썼다"를 청구로
  * 오해하는 것보다 낫다.
  */
-export function formatCostLine(costUsd, billing = 'unknown') {
+/**
+ * 이 요약이 비용을 실제로 담고 있는지 판단한다.
+ *
+ * costAvailable은 나중에 추가된 필드라 과거 manifest에는 없다. 그때는 entries의
+ * costUsd가 하나라도 채워졌는지로 판단한다(미노출 provider는 null로 저장된다).
+ * 판단 근거가 아예 없으면 기존 동작을 유지한다.
+ */
+export function costAvailableFromSummary(summary = {}) {
+  if (typeof summary.costAvailable === 'boolean') {
+    return summary.costAvailable;
+  }
+  const entries = summary.entries || [];
+  if (entries.length === 0) {
+    return true;
+  }
+  return entries.some((entry) => entry.costUsd !== null && entry.costUsd !== undefined);
+}
+
+export function turnsAvailableFromSummary(summary = {}) {
+  if (Number.isFinite(summary.turnsReported)) {
+    return summary.turnsReported > 0;
+  }
+  const entries = summary.entries || [];
+  if (entries.length === 0) {
+    return true;
+  }
+  return entries.some((entry) => entry.turns !== null && entry.turns !== undefined);
+}
+
+export function formatCostLine(costUsd, billing = 'unknown', { available = true, provider = null } = {}) {
+  if (!available) {
+    return `Cost: not reported${provider ? ` by ${provider}` : ' by this provider'} (billed tokens are still counted)`;
+  }
   const value = Number(costUsd || 0);
   if (billing === 'api') {
     return `Cost USD: $${value.toFixed(4)}`;
@@ -224,8 +268,10 @@ export function formatUsageSummary(summary = {}, { billing = 'unknown' } = {}) {
     `billedTokens: ${summary.billedTokens ?? 0}`,
     `cacheReadTokens: ${summary.cacheReadTokens ?? 0}`,
     `cacheCreationTokens: ${summary.cacheCreationTokens ?? 0}`,
-    `agentTurns: ${summary.agentTurns ?? 0}`,
-    formatCostLine(summary.costUsd, billing),
+    turnsAvailableFromSummary(summary)
+      ? `agentTurns: ${summary.agentTurns ?? 0}`
+      : 'agentTurns: not reported by this provider',
+    formatCostLine(summary.costUsd, billing, { available: costAvailableFromSummary(summary) }),
     `remainingTokens: ${summary.remainingTokens ?? 'unknown'}`,
     `remainingTokensReason: ${summary.remainingTokensReason || 'unknown'}`
   ].join('\n');
