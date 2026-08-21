@@ -237,6 +237,22 @@ Hermes가 사용할 수 있는 액션은 다음과 같습니다.
 - `stop_failed`: reporter가 실패 상태를 보고하게 한 뒤 하네스 실행을 실패로 종료합니다.
 - `request_human_review`: reporter가 사람 검토 필요 상태를 보고하게 한 뒤 하네스 실행을 실패로 종료합니다.
 
+### 변경 0건 게이트
+
+쓰기 스텝(`coder`)이 돌았는데 아무것도 바뀌지 않았다면 요청이 이행되지 않은 것입니다. **validation으로는 이걸 잡을 수 없습니다** — 바뀐 게 없어도 빌드는 그대로 통과하므로 `exitCode: 0`이 요청 이행을 증명하지 않습니다.
+
+실제로 이런 run이 있었습니다. build가 exit 0이었지만 coder가 권한 거부로 변경 0건이었고, Hermes가 *"build 통과는 기존 스캐폴드 확인일 뿐 성공 근거 아님"*이라며 `stop_failed`를 냈습니다. 그 판단의 근거(`changedFiles: 0`)는 이미 manifest에 있었으므로 LLM 없이 잡을 수 있는 신호입니다.
+
+하네스는 이 신호를 항상 inspection 단계에 `noChangeAssessment`로 기록하고 supervisor 컨텍스트에 `changeAssessment` 줄로 노출합니다.
+
+```json
+{
+  "policy": { "blockOnNoChanges": true }
+}
+```
+
+켜면 supervisor를 호출하기 **전에** 런을 실패로 끝냅니다. `hermes`와 `reporter` provider 호출도 함께 아낍니다. 기본값은 `false`입니다 — coder가 "이미 고쳐져 있어 바꿀 게 없다"고 정당하게 판단하는 경우가 있고, 그때는 Hermes가 맥락을 보고 판단하는 편이 낫습니다. `--policy-approved`로 우회합니다.
+
 Hermes 결정은 `manifest.json`의 `supervisorDecisions`에 기록됩니다. 파이프라인 승격은 `pipelineChanges`에 기록되며, 건너뛴 스텝은 `skippedSteps`와 `resumeStepIndex`로 남습니다.
 
 ### 승격 시 재실행 범위

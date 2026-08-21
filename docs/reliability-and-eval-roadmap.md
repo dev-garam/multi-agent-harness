@@ -37,8 +37,28 @@
 | A2b | 큐 클레임 rename 원자적 선점(`claimPendingTask`). 동시 tick 이중 실행 방지 | 직접 |
 | — | metrics를 `harness --help` usage에 노출(누락 보강) | 직접 |
 
+| no-change | 변경 0건 게이트: 쓰기 스텝이 돌았는데 `changedFiles: 0`이면 신호를 항상 기록(`noChangeAssessment`)하고 supervisor에 노출. 옵트인 `policy.blockOnNoChanges`면 supervisor 호출 **전에** 런을 차단해 provider 호출도 아낀다. validation이 통과해도 차단된다는 점이 핵심 | 직접 |
 | C2b+ | diff 위험 하드 블록: `policy.blockOnChangeRisk` 옵트인 시 inspection 후 런 차단(`#enforceChangeRiskGate`). `--policy-approved`로 우회, 기본 off로 하위 호환. e2e 테스트 | 직접 |
 | B6 | **토큰 가시성**. claude adapter를 `--output-format json`으로 전환해 usage/total_cost_usd를 노출(text 모드에서는 아예 출력되지 않아 측정 불가였음). stdout이 JSON이 되므로 `extractFinalOutput`으로 `result`만 뽑아 다음 스텝 컨텍스트에 넣고, 파싱 실패 시 원문 폴백. 캐시 토큰을 포함한 `billedTokens`·`agentTurns` 집계를 `usage.js`/`show`에 추가. **실제 claude로 e2e 검증** | 직접 |
+
+### 외부 리뷰 대응 (2026-08-21)
+
+다른 에이전트의 구조 지적을 항목별로 검증했다. 결과가 갈렸다.
+
+**사실로 확인된 것** — 기본값이 안전 논지와 반대(`workspaceMode: direct`, `runner: local`), 상태가 프로젝트별이 아니라 하네스 루트에 쌓임(queue·memory·feedback·reports·promotions·eval 6종), provider CLI 인자 취약성과 버전 핀 부재, "multi-agent"라는 이름과 순차 실행(`Promise.all` 없음)의 불일치, 실제 버그 픽스처 기반 결과 지표 부재.
+
+**부정확한 지적** — "qa/verifier가 coder 요약만 받아 검증한다". 두 프롬프트 모두 앞 출력을 *claim*으로 다루고 repo·git diff·명령 출력으로 대조하라고 명시한다. 게다가 하네스가 inspection 단계에서 결정론적으로 git diff를 떠서 `changedFiles`/`riskyFiles`/`secretFindings`를 컨텍스트에 넣는다. 실제 e2e에서 hermes가 git diff를 직접 실행해 coder 주장을 대조하고 하네스 자체 버그까지 찾아낸 사례가 있다.
+
+**데이터로 답할 수 없던 것** — "hermes 결정 vs 룰 기반 일치율을 재보면 LLM 필요 여부가 나온다". 재봤다. 541개 결정 중 **98.7%가 mock**이고 mock 결정은 테스트 시나리오에 하드코딩돼 있어 판단 품질이 아니라 시나리오 분포를 반영한다(전체 63.6%, 실제 provider 7건 85.7%). 표본이 부족해 결론 불가 — 이는 기존에 인지한 "실증 부재"와 같은 문제다.
+
+다만 룰과 갈린 실제 결정 2건이 시사적이었다.
+
+| run | validation | hermes | 근거 |
+|-----|-----------|--------|------|
+| `..._141743` | build 통과(exit 0) | `stop_failed` | "변경 0건. build 통과는 기존 스캐폴드 확인일 뿐" |
+| `..._162226` | 없음 | `request_human_review` | "설계 결정 미해결이라 자동화 단독 진행 부적절" |
+
+둘 다 validation pass/fail만으로는 도달 불가능한 판단이다. **다만 1번은 절반이 지적대로다** — `changedFiles: 0`이 이미 manifest에 있었으므로 LLM 없이 잡을 수 있었다. 이를 값싼 룰 게이트로 구현했다(아래 no-change 게이트).
 
 ### ⏳ 남음 (후속)
 

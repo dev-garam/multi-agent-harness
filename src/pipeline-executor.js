@@ -280,6 +280,8 @@ export class PipelineExecutor {
     this.policy = directRunPolicyFromProjectConfig(this.projectConfig);
     // C2b 하드 블록(옵트인): 실제 diff가 승인을 요구하면 런을 완료로 진행시키지 않는다.
     this.blockOnChangeRisk = policyFromProjectConfig(this.projectConfig).blockOnChangeRisk === true;
+    // 쓰기 스텝이 돌았는데 변경 0건이면 런을 차단한다(옵트인).
+    this.blockOnNoChanges = policyFromProjectConfig(this.projectConfig).blockOnNoChanges === true;
     const basePolicyDecision = evaluatePolicy({
       request: this.request,
       policy: this.policy,
@@ -753,14 +755,32 @@ export class PipelineExecutor {
     this.changeRiskAssessment = { step: step.id, ...changeRisk };
     await appendManifestStep(runDir, manifest, result);
 
+    // 쓰기 스텝이 돌았는데 변경이 0건이면 이상 신호다. validation은 통과할 수 있다
+    // (빌드가 기존 상태로 성공). 실제 run에서 hermes가 "build 통과는 기존 스캐폴드
+    // 확인일 뿐 성공 근거 아님"이라며 stop_failed를 낸 사례가 있고, 그 판단의 근거는
+    // 이미 manifest에 있었다. LLM을 부르기 전에 결정론적으로 잡을 수 있는 신호다.
+    const writeStepRan = this.executedSteps.has('coder');
+    const changedCount = Array.isArray(result.changedFiles) ? result.changedFiles.length : 0;
+    this.noChangeAssessment = {
+      step: step.id,
+      writeStepRan,
+      changedFiles: changedCount,
+      // dry-run은 애초에 아무것도 실행하지 않으므로 신호로 삼지 않는다.
+      suspicious: writeStepRan && changedCount === 0 && !this.options.dryRun
+    };
+    result.noChangeAssessment = this.noChangeAssessment;
+
     const assessmentLine = changeRisk.requiresApproval
       ? `policyAssessment: requires human approval\n${changeRisk.reasons.map((reason) => `- ${reason}`).join('\n')}`
       : 'policyAssessment: no additional approval required';
+    const noChangeLine = this.noChangeAssessment.suspicious
+      ? '\nchangeAssessment: write step ran but produced no changes. Validation success here does not prove the request was implemented.'
+      : '';
     this.context.push({
       kind: 'inspection',
       baseStepId: step.id,
       stepId: result.id,
-      text: `## inspection:${result.id}\n${inspectionSummary(result)}\n${assessmentLine}`
+      text: `## inspection:${result.id}\n${inspectionSummary(result)}\n${assessmentLine}${noChangeLine}`
     });
   }
 
@@ -793,6 +813,40 @@ export class PipelineExecutor {
     throw new Error(
       `Policy blocked this run: risky change detected after ${step.id} (${reasonText}). `
       + `Review ${reviewTarget}, then re-run with --policy-approved to proceed.`
+    );
+  }
+
+  /**
+   * 변경 0건 하드 게이트(옵트인). 쓰기 스텝이 돌았는데 아무것도 바뀌지 않았다면
+   * 요청이 이행되지 않은 것이다. validation은 이 경우에도 통과할 수 있으므로
+   * (기존 상태로 빌드 성공) validation 결과만으로는 잡히지 않는다.
+   *
+   * 기본은 off다. coder가 "이미 고쳐져 있어 변경할 게 없다"고 정당하게 판단하는
+   * 경우가 있고, 그때는 hermes가 맥락을 보고 판단하는 편이 낫다. 켜면 hermes를
+   * 호출하기 전에 런을 끝내므로 provider 호출도 아낀다.
+   */
+  async #enforceNoChangeGate({ step }) {
+    if (!this.noChangeAssessment?.suspicious || !this.blockOnNoChanges) {
+      return;
+    }
+    if (this.options.dryRun || this.options.policyApproved) {
+      return;
+    }
+
+    const reason = `write step ran but produced no changes after ${step.id}`;
+    this.manifest.finishedAt = new Date().toISOString();
+    this.manifest.status = 'failed';
+    this.manifest.failureReason = `No-change policy blocked the run: ${reason}.`;
+    this.manifest.policyBlock = { kind: 'no-change', step: step.id, changedFiles: 0 };
+    this.manifest.workspace = await finalizeWorkspace({
+      workspace: this.manifest.workspace,
+      runDir: this.runDir
+    });
+    await this.#teardownTools();
+    await this.#saveRuntimeManifest();
+    throw new Error(
+      `Policy blocked this run: ${reason}. The request appears unimplemented even though validation may have passed. `
+      + `Review ${this.runDir}, then re-run with --policy-approved if this is expected.`
     );
   }
 
@@ -933,6 +987,7 @@ export class PipelineExecutor {
           attempt
         });
         await this.#enforceChangeRiskGate({ step: baseStep });
+        await this.#enforceNoChangeGate({ step: baseStep });
       }
 
       if (baseStep.id === HERMES_STEP_ID && existsSync(result.finalPath)) {

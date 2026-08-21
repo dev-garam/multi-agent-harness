@@ -361,3 +361,11 @@ Fixture repositories may include `.harness-eval.json`. This file is read by `har
 - `supervisorCases` freezes supervisor decision parsing (`parseSupervisorDecision`) as golden regression: `output` is the raw model text, and `valid`/`nextAction`/`status`/`targetStep` are matched against the normalized decision — including safe collapse to `request_human_review` on unparseable or invalid output.
 
 `policyCases`, `pipelineCases`, and `supervisorCases` move eval beyond readiness checks into judgment-quality regression: they measure whether the harness's routing and supervision decisions still match known-good golden outputs.
+
+### policy.blockOnNoChanges
+
+A write step (`coder`) that runs but changes nothing means the request was not implemented. Validation does not catch this: a build can still pass on the unchanged tree, so `exitCode: 0` proves nothing about the request.
+
+The harness always records the signal on the inspection step as `noChangeAssessment` (`writeStepRan`, `changedFiles`, `suspicious`) and surfaces it to the supervisor as a `changeAssessment` line. Set `policy.blockOnNoChanges: true` to make it a hard gate: the run stops and is marked failed with `policyBlock.kind = "no-change"` before the supervisor is called, which also saves the provider calls for `hermes` and `reporter`.
+
+Default is `false`. A coder can legitimately conclude that nothing needs changing (the fix is already present), and in that case letting the supervisor judge the context is better. Bypass a block with `--policy-approved`.
