@@ -927,6 +927,42 @@ Token usage (measured in 1/499 run(s))
 
 run 하나를 진단할 때는 `harness show`가 같은 분해를 `Step costs:`로 보여줍니다.
 
+### 비용 표기를 어떻게 읽어야 하는가
+
+provider CLI가 주는 cost는 **API 요금 기준 환산값**입니다. 구독으로 로그인해 쓰면 실제 청구가 아니라 사용량 한도에서 차감됩니다. 하네스는 사용자의 요금제를 알 수 없으므로 단정하지 않습니다.
+
+```text
+Cost (API-equivalent): ~$0.3665 (estimate; not a bill if your provider uses a subscription)
+```
+
+과금 모델을 선언하면 표기가 정확해집니다.
+
+```json
+{
+  "agent": { "provider": "claude", "billing": "subscription" }
+}
+```
+
+| 값 | 표기 |
+| --- | --- |
+| `api` | `Cost USD: $0.3665` — 실제 청구 기준 |
+| `subscription` | 환산값이며 청구가 아니라 한도 소모임을 명시 |
+| 미설정(기본) | 환산 추정치임을 명시 |
+
+요금제 이름(`max-5x` 같은)은 받지 않습니다. 상품 구성이 바뀌면 하네스가 거짓말을 하게 되기 때문입니다.
+
+**`billedTokens`가 과금 모델 중립 지표입니다.** 토큰은 구독이든 API든 실제 소모량이므로, 요금제와 무관하게 비교할 수 있습니다.
+
+### 이번 run이 큰 편인가
+
+절대 금액은 요금제마다 의미가 다르지만, **자기 이력 대비**는 누구에게나 통합니다. `harness metrics`가 사용자 자신의 분포를 기준선으로 줍니다.
+
+```text
+  Typical run:     192,519 billed (median of 2), 319,510 (p90), 319,510 (max)
+```
+
+상품 정보가 필요 없고, run이 쌓일수록 정확해집니다.
+
 `measured in N/M`의 격차 자체가 지표입니다. usage를 노출하지 않는 provider나 구버전 manifest는 분모에서 빠지므로, 이 비율이 낮으면 "소비가 적은 것"이 아니라 "측정이 안 되고 있는 것"입니다. 판정 기준은 파싱 상태가 아니라 실제 값의 유무입니다.
 
 ### 역할별 컨텍스트 선별

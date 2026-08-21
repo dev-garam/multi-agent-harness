@@ -23,7 +23,7 @@ import { runToolLifecycle, toolConfigsFromProjectConfig } from './tools.js';
 import { writePromptCacheArtifact } from './prompt-cache.js';
 import { selectPipeline } from './pipeline-selection.js';
 import { ContextLedger, contextSelectionFromProjectConfig } from './context-ledger.js';
-import { formatUsageSummary, summarizeManifestUsage } from './usage.js';
+import { billingModeFromProjectConfig, formatUsageSummary, summarizeManifestUsage } from './usage.js';
 
 const HERMES_STEP_ID = 'hermes';
 const DEFAULT_MAX_SUPERVISOR_TURNS = 3;
@@ -396,7 +396,10 @@ export class PipelineExecutor {
         outputMode: this.agent.outputMode,
         defaultTimeoutMs: this.agent.defaultTimeoutMs,
         capabilities: this.agent.capabilities,
-        custom: this.agent.custom
+        custom: this.agent.custom,
+        // 사용자가 선언한 과금 모델. 하네스는 요금제를 알 수 없으므로 기본은 unknown이고,
+        // 비용 표기는 그때 환산값임을 드러낸다.
+        billing: billingModeFromProjectConfig(this.projectConfig)
       },
       roleAgents: {
         hermes: this.projectConfig.supervisor?.agent || null,
@@ -927,7 +930,7 @@ export class PipelineExecutor {
         this.context.push({
           kind: 'usage',
           baseStepId: baseStep.id,
-          text: `## harness usage summary\n${formatUsageSummary(this.manifest.usageSummary)}`
+          text: `## harness usage summary\n${formatUsageSummary(this.manifest.usageSummary, { billing: this.manifest.agent.billing })}`
         });
       }
 

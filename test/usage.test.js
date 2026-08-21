@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict';
-import { parseProviderUsage, summarizeManifestUsage, formatUsageSummary } from '../src/usage.js';
+import {
+  parseProviderUsage,
+  summarizeManifestUsage,
+  formatUsageSummary,
+  formatCostLine,
+  billingModeFromProjectConfig
+} from '../src/usage.js';
 
 const jsonUsage = parseProviderUsage('{"usage":{"input_tokens":10,"output_tokens":5,"cost_usd":0.02}}', {
   provider: 'codex'
@@ -110,3 +116,36 @@ assert.match(formatted, /cacheReadTokens: 31800/);
 assert.match(formatted, /agentTurns: 6/);
 
 console.log('usage cache/turn accounting tests passed');
+
+// ---------------------------------------------------------------------------
+// 비용 표기: provider가 주는 cost는 API 요금 환산값이다. 구독 인증이면 실제 청구가
+// 아니라 사용량 한도에서 차감된다. 하네스는 사용자의 요금제를 알 수 없으므로
+// 선언된 경우에만 단정하고, 기본(unknown)에서는 환산값임을 드러낸다.
+// ---------------------------------------------------------------------------
+const apiLine = formatCostLine(0.6935, 'api');
+assert.equal(apiLine, 'Cost USD: $0.6935');
+assert.equal(/API-equivalent/.test(apiLine), false, 'declared API billing shows a plain cost');
+
+const subLine = formatCostLine(0.6935, 'subscription');
+assert.match(subLine, /API-equivalent/);
+assert.match(subLine, /not billed/);
+
+const unknownLine = formatCostLine(0.6935, 'unknown');
+assert.match(unknownLine, /API-equivalent/);
+assert.match(unknownLine, /estimate/);
+// 기본값도 unknown과 같아야 한다(모르면 단정하지 않는다).
+assert.equal(formatCostLine(0.6935), unknownLine);
+// 값이 없어도 안전하다.
+assert.match(formatCostLine(undefined), /~\$0\.0000/);
+
+assert.equal(billingModeFromProjectConfig({}), 'unknown');
+assert.equal(billingModeFromProjectConfig({ agent: {} }), 'unknown');
+assert.equal(billingModeFromProjectConfig({ agent: { billing: 'nonsense' } }), 'unknown');
+assert.equal(billingModeFromProjectConfig({ agent: { billing: 'api' } }), 'api');
+assert.equal(billingModeFromProjectConfig({ agent: { billing: 'subscription' } }), 'subscription');
+
+// formatUsageSummary도 billing을 반영한다.
+assert.match(formatUsageSummary({ costUsd: 0.5 }, { billing: 'api' }), /Cost USD: \$0\.5000/);
+assert.match(formatUsageSummary({ costUsd: 0.5 }), /API-equivalent/);
+
+console.log('usage cost labeling tests passed');

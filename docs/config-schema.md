@@ -387,3 +387,13 @@ Call-count limits (`maxProviderCalls`) do not bound consumption: six calls can s
 Usage is only known after a step finishes, so the limit is checked when the *next* agent or validation call starts — the same pattern as `maxRuntimeMs`. A run can therefore overshoot the limit by one step, but it cannot keep running past it. Steps whose usage could not be parsed contribute nothing, so an unparsed provider never trips the limit.
 
 Both are unset by default.
+
+### agent.billing
+
+How the selected provider is paid for: `api`, `subscription`, or unset (default).
+
+Provider CLIs report cost in API-equivalent dollars. On a subscription login that number is not a bill — the work is drawn from plan usage instead. The harness cannot detect the user's plan, so it does not guess: with `billing` unset it labels the number as an estimate, and only prints a plain cost when `api` is declared.
+
+Plan names (for example `max-5x`) are deliberately not accepted. Plan structures change, and a hardcoded table would make the harness state something false.
+
+`billedTokens` is the billing-model-neutral figure: it counts real consumption regardless of how the provider charges for it.
