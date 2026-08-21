@@ -188,7 +188,33 @@ export function summarizeManifestUsage(manifest = {}) {
   };
 }
 
-export function formatUsageSummary(summary = {}) {
+/**
+ * 비용 표기를 정한다.
+ *
+ * provider CLI가 주는 cost는 API 요금 기준 환산값이다. 구독 인증으로 쓰면 실제
+ * 청구가 아니라 사용량 한도에서 차감된다. 하네스는 사용자의 요금제를 알 수 없으므로
+ * 아는 척하지 않고, `agent.billing`으로 선언된 경우에만 단정한다.
+ *
+ * 기본값(unknown)에서는 환산값임을 드러내는 쪽이 안전하다. "$0.69 썼다"를 청구로
+ * 오해하는 것보다 낫다.
+ */
+export function formatCostLine(costUsd, billing = 'unknown') {
+  const value = Number(costUsd || 0);
+  if (billing === 'api') {
+    return `Cost USD: $${value.toFixed(4)}`;
+  }
+  const suffix = billing === 'subscription'
+    ? ' (subscription: consumes plan usage, not billed)'
+    : ' (estimate; not a bill if your provider uses a subscription)';
+  return `Cost (API-equivalent): ~$${value.toFixed(4)}${suffix}`;
+}
+
+export function billingModeFromProjectConfig(projectConfig = {}) {
+  const billing = projectConfig.agent?.billing;
+  return billing === 'api' || billing === 'subscription' ? billing : 'unknown';
+}
+
+export function formatUsageSummary(summary = {}, { billing = 'unknown' } = {}) {
   return [
     `providerCalls: ${summary.providerCalls ?? 0}${summary.maxProviderCalls !== null && summary.maxProviderCalls !== undefined ? ` / ${summary.maxProviderCalls}` : ''}`,
     `remainingProviderCalls: ${summary.remainingProviderCalls ?? 'unknown'}`,
@@ -199,7 +225,7 @@ export function formatUsageSummary(summary = {}) {
     `cacheReadTokens: ${summary.cacheReadTokens ?? 0}`,
     `cacheCreationTokens: ${summary.cacheCreationTokens ?? 0}`,
     `agentTurns: ${summary.agentTurns ?? 0}`,
-    `costUsd: ${summary.costUsd ?? 0}`,
+    formatCostLine(summary.costUsd, billing),
     `remainingTokens: ${summary.remainingTokens ?? 'unknown'}`,
     `remainingTokensReason: ${summary.remainingTokensReason || 'unknown'}`
   ].join('\n');

@@ -37,6 +37,15 @@ const ROLE_CATEGORY = {
   reporter: 'meta'
 };
 
+/** 정렬된 표본에서 백분위 값을 낸다(가장 가까운 순위 방식). */
+function percentile(sorted, fraction) {
+  if (sorted.length === 0) {
+    return 0;
+  }
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(fraction * sorted.length) - 1));
+  return sorted[index];
+}
+
 export function categoryOfRole(role) {
   return ROLE_CATEGORY[role] || 'other';
 }
@@ -64,6 +73,9 @@ export function computeMetrics(manifests = []) {
     costUsd: 0
   };
   const usageByPipeline = {};
+  // 개별 run의 소모량을 모아 분포를 낸다. "$0.69"는 요금제마다 의미가 다르지만
+  // "평소 run의 1.8배"는 누구에게나 통한다. 사용자의 상품 정보를 알 필요가 없다.
+  const runBilledTokens = [];
   const usageByRole = {};
   const usageByCategory = {};
   let agentStepCount = 0;
@@ -125,6 +137,7 @@ export function computeMetrics(manifests = []) {
       if (!usageByPipeline[pipeline]) {
         usageByPipeline[pipeline] = { runs: 0, billedTokens: 0, costUsd: 0 };
       }
+      runBilledTokens.push(usage.billedTokens || 0);
       usageByPipeline[pipeline].runs += 1;
       usageByPipeline[pipeline].billedTokens += usage.billedTokens || 0;
       usageByPipeline[pipeline].costUsd += usage.costUsd || 0;
@@ -190,6 +203,17 @@ export function computeMetrics(manifests = []) {
       cacheReadRatio: rate(usageTotals.cacheReadTokens, usageTotals.billedTokens),
       // 스텝 하나를 띄우는 데 드는 평균 비용. 스텝마다 새 CLI 프로세스가 뜨므로
       // 이 값이 사실상 스텝당 고정비다.
+      // 사용자 자신의 이력이 기준선이다. 요금제·provider·과금 모델과 무관하게
+      // "이번 run이 평소보다 큰가"를 판단할 수 있다.
+      typicalRun: (() => {
+        const sorted = [...runBilledTokens].sort((left, right) => left - right);
+        return {
+          runs: sorted.length,
+          medianBilledTokens: percentile(sorted, 0.5),
+          p90BilledTokens: percentile(sorted, 0.9),
+          maxBilledTokens: sorted.length > 0 ? sorted[sorted.length - 1] : 0
+        };
+      })(),
       agentSteps: agentStepCount,
       avgCostPerStep: agentStepCount > 0 ? usageTotals.costUsd / agentStepCount : 0,
       byPipeline: usageByPipeline,
@@ -272,11 +296,20 @@ export function formatMetrics(metrics) {
     `  Cache creation:  ${num(usage.cacheCreationTokens)}`,
     `  Input + output:  ${num(usage.totalTokens)}`,
     `  Agent turns:     ${num(usage.agentTurns)}`,
-    `  Cost USD:        ${usd(usage.costUsd)} (avg ${usd(usage.avgCostUsd)}/run)`
+    `  Cost:            ~${usd(usage.costUsd)} API-equivalent (avg ~${usd(usage.avgCostUsd)}/run)`
   );
 
   if (usage.agentSteps > 0) {
     lines.push(`  Agent steps:     ${num(usage.agentSteps)} (avg ${usd(usage.avgCostPerStep)}/step)`);
+  }
+
+  // 요금제를 모르므로 절대 금액 대신 사용자 자신의 이력을 기준선으로 준다.
+  const typical = usage.typicalRun;
+  if (typical && typical.runs > 0) {
+    lines.push(
+      `  Typical run:     ${num(typical.medianBilledTokens)} billed (median of ${typical.runs})`
+        + `, ${num(typical.p90BilledTokens)} (p90), ${num(typical.maxBilledTokens)} (max)`
+    );
   }
 
   const pipelineEntries = Object.entries(usage.byPipeline || {})

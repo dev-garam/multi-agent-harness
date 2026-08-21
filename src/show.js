@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { harnessRoot } from './fs-utils.js';
+import { formatCostLine } from './usage.js';
 
 const RUN_ID_PATTERN = /^\d{4}-\d{2}-\d{2}_\d{6}(?:_\d{3})?$/;
 
@@ -167,6 +168,7 @@ export function summarizeRunManifest(manifest) {
     completedPipeline: manifest.completedPipeline || manifest.pipeline,
     pipelineSelection: manifest.pipelineSelection || null,
     agent: manifest.agent?.provider || manifest.agent?.name || null,
+    billing: manifest.agent?.billing || 'unknown',
     startedAt: manifest.startedAt || null,
     finishedAt: manifest.finishedAt || null,
     workspace: {
@@ -271,7 +273,7 @@ export function formatRunSummary(summary) {
     `Cache read tokens: ${summary.usage.cacheReadTokens ?? 0}`,
     `Cache creation tokens: ${summary.usage.cacheCreationTokens ?? 0}`,
     `Agent turns: ${summary.usage.agentTurns ?? 0}`,
-    `Cost USD: ${summary.usage.costUsd}`,
+    formatCostLine(summary.usage.costUsd, summary.billing || 'unknown'),
     `Remaining tokens: ${formatNullable(summary.usage.remainingTokens)}`,
     ...stepCostLines(summary.usage),
     '',

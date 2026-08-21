@@ -197,7 +197,7 @@ export function buildDeterministicReport({ manifest, request }) {
       '## Harness usage',
       '',
       '```text',
-      formatUsageSummary(manifest.usageSummary),
+      formatUsageSummary(manifest.usageSummary, { billing: manifest.agent?.billing || 'unknown' }),
       '```'
     );
   }

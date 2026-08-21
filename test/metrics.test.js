@@ -197,12 +197,24 @@ assert.equal(usageMetrics.providerSuccessRate.claude.usageRuns, 2);
 assert.equal(Number(usageMetrics.providerSuccessRate.claude.costUsd.toFixed(4)), 2);
 assert.equal(usageMetrics.providerSuccessRate.codex.usageRuns, undefined);
 
+// 자기 이력 기준선: 요금제를 모르므로 절대 금액 대신 사용자 자신의 분포를 준다.
+// 측정된 run은 2건(320000, 680000)이다.
+assert.equal(usageMetrics.usage.typicalRun.runs, 2);
+assert.equal(usageMetrics.usage.typicalRun.medianBilledTokens, 320000);
+assert.equal(usageMetrics.usage.typicalRun.p90BilledTokens, 680000);
+assert.equal(usageMetrics.usage.typicalRun.maxBilledTokens, 680000);
+// 측정 run이 없으면 0으로 안전하게 나온다.
+assert.equal(computeMetrics([]).usage.typicalRun.runs, 0);
+assert.equal(computeMetrics([]).usage.typicalRun.medianBilledTokens, 0);
+
 // 포맷 출력.
 const usageText = formatMetrics(usageMetrics);
 assert.match(usageText, /Token usage \(measured in 2\/4 run\(s\)\)/);
 assert.match(usageText, /Billed tokens:\s+1,000,000 \(avg 500,000\/run\)/);
 assert.match(usageText, /Cache read:\s+875,000 \(87\.5% of billed\)/);
-assert.match(usageText, /Cost USD:\s+\$2\.0000/);
+// 비용은 환산값임을 드러낸다(요금제를 모르므로 단정하지 않는다).
+assert.match(usageText, /Cost:\s+~\$2\.0000 API-equivalent/);
+assert.match(usageText, /Typical run:\s+320,000 billed \(median of 2\)/);
 // 비싼 파이프라인이 먼저 나온다.
 assert.ok(usageText.indexOf('safe_fix:') < usageText.indexOf('quick_fix:'));
 
