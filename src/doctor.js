@@ -7,7 +7,7 @@ import { validationCommandsFromProjectConfig } from './validation.js';
 import { inspectHarnessGitignore, trustBoundaryWarnings } from './trust.js';
 import { formatConfigValidationIssues, validateProjectConfig } from './config-validation.js';
 import { loadConfig } from './config.js';
-import { listProviderCapabilities, resolveAgentConfig } from './agent.js';
+import { listProviderCapabilities, missingContractFlags, providerContract, resolveAgentConfig } from './agent.js';
 import { assertRuntimeRunnerAvailable, runtimeRunnerFromOptions } from './runtime-runner.js';
 import { runHarnessEval } from './eval.js';
 
@@ -101,6 +101,34 @@ async function commandVersion(command, args = ['--version']) {
   };
 }
 
+/**
+ * provider CLI가 하네스가 실제로 쓰는 플래그를 여전히 제공하는지 --help로 확인한다.
+ *
+ * provider CLI는 버전에 따라 인자가 바뀐다. 버전 숫자를 핀으로 박는 것보다
+ * 사용하는 플래그의 존재를 직접 확인하는 편이 고장을 정확히 잡는다.
+ * 커스텀 command/args를 쓰는 provider는 내장 buildArgs를 타지 않으므로 건너뛴다.
+ */
+async function checkProviderContract(providerName, command, { custom = false } = {}) {
+  const contract = providerContract(providerName);
+  if (!contract || custom) {
+    return { status: 'skipped', detail: custom ? 'custom command/args' : 'no built-in contract' };
+  }
+
+  const help = await capture(command, contract.helpArgs);
+  const helpText = `${help.stdout || ''}\n${help.stderr || ''}`;
+  const missing = missingContractFlags(providerName, helpText);
+  if (missing === null) {
+    return { status: 'unknown', detail: `could not read \`${command} ${contract.helpArgs.join(' ')}\`` };
+  }
+  if (missing.length > 0) {
+    return {
+      status: 'fail',
+      detail: `missing CLI flags: ${missing.join(', ')}. The provider CLI may have changed its arguments.`
+    };
+  }
+  return { status: 'ok', detail: `${contract.requiredFlags.length} required flag(s) present` };
+}
+
 async function readProjectConfig(repo) {
   const configPath = path.join(repo, '.harness.json');
   if (!existsSync(configPath)) {
@@ -162,6 +190,18 @@ export async function runDoctor({ repo = process.cwd(), agent = null } = {}) {
     printCheck('ok', 'selected agent contract',
       `output=${selectedAgent.outputMode}, defaultTimeoutMs=${selectedAgent.defaultTimeoutMs}, custom=${selectedAgent.custom}`);
     hasFailure = hasFailure || !agentVersion.ok;
+
+    if (agentVersion.ok) {
+      const cliContract = await checkProviderContract(selectedAgent.name, selectedAgent.command, {
+        custom: selectedAgent.custom
+      });
+      printCheck(
+        cliContract.status === 'fail' ? 'fail' : cliContract.status === 'ok' ? 'ok' : 'warn',
+        `selected agent CLI flags: ${selectedAgent.name}`,
+        cliContract.detail
+      );
+      hasFailure = hasFailure || cliContract.status === 'fail';
+    }
   } catch (error) {
     printCheck('fail', 'selected agent', error instanceof Error ? error.message : String(error));
     hasFailure = true;
@@ -174,6 +214,12 @@ export async function runDoctor({ repo = process.cwd(), agent = null } = {}) {
     const version = await commandVersion(contract.command, contract.versionArgs);
     printCheck(version.ok ? 'ok' : 'warn', `optional agent: ${provider}`,
       version.ok ? `${version.detail}; output=${contract.outputMode}` : `${contract.command} not available`);
+    if (version.ok) {
+      const cliContract = await checkProviderContract(provider, contract.command);
+      if (cliContract.status !== 'ok') {
+        printCheck(cliContract.status === 'fail' ? 'warn' : 'warn', `optional agent CLI flags: ${provider}`, cliContract.detail);
+      }
+    }
   }
 
   try {

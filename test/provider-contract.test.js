@@ -3,7 +3,9 @@ import {
   resolveAgentConfig,
   providerCapabilities,
   listProviderCapabilities,
-  knownProviderNames
+  knownProviderNames,
+  providerContract,
+  missingContractFlags
 } from '../src/agent.js';
 
 // built-in provider adapter의 buildArgs 계약이 바뀌면 이 스냅샷 테스트가 깨진다.
@@ -153,3 +155,58 @@ assert.equal(listed.claude.capabilities.outputMode, 'stdout');
 assert.equal(listed.antigravity.capabilities.outputMode, 'stdout');
 
 console.log('provider contract tests passed');
+
+// ---------------------------------------------------------------------------
+// CLI 인자 계약: provider CLI는 버전에 따라 플래그가 바뀐다. 버전 숫자를 핀으로
+// 박는 대신 buildArgs가 실제로 쓰는 플래그를 선언해두고 doctor가 --help로 존재를
+// 확인한다. 이 스냅샷이 깨지면 계약 선언과 buildArgs가 어긋난 것이다.
+// ---------------------------------------------------------------------------
+assert.deepEqual(providerContract('codex'), {
+  helpArgs: ['exec', '--help'],
+  requiredFlags: ['--cd', '--sandbox', '--json', '--output-last-message']
+});
+assert.deepEqual(providerContract('claude'), {
+  helpArgs: ['--help'],
+  requiredFlags: ['-p', '--output-format', '--permission-mode', '--allowedTools']
+});
+assert.deepEqual(providerContract('antigravity'), {
+  helpArgs: ['--help'],
+  requiredFlags: ['--prompt']
+});
+assert.equal(providerContract('my-cli'), null);
+
+// 선언한 필수 플래그는 실제 buildArgs 출력에 모두 나타나야 한다. 선언만 하고
+// 쓰지 않거나, 쓰는데 선언하지 않으면 검사가 무의미해진다.
+for (const [name, step] of [
+  ['codex', { id: 'coder', sandbox: 'workspace-write' }],
+  ['claude', { id: 'coder', sandbox: 'workspace-write' }],
+  ['antigravity', { id: 'coder' }]
+]) {
+  const args = buildArgsFor(name, step).join(' ');
+  for (const flag of providerContract(name).requiredFlags) {
+    assert.ok(args.includes(flag), `${name} buildArgs must actually use declared flag ${flag}`);
+  }
+}
+
+// missingContractFlags: 순수 함수라 실제 CLI 없이 검증한다.
+assert.deepEqual(
+  missingContractFlags('claude', '-p --output-format --permission-mode --allowedTools --model'),
+  []
+);
+// 플래그가 사라지거나 이름이 바뀐 상황(실제 고장 1순위).
+assert.deepEqual(
+  missingContractFlags('claude', 'usage: claude -p --print-format text'),
+  ['--output-format', '--permission-mode', '--allowedTools']
+);
+// 도움말을 읽지 못했으면 null(= 판단 불가). 빈 배열(= 전부 존재)과 구분한다.
+assert.equal(missingContractFlags('claude', ''), null);
+assert.equal(missingContractFlags('claude', null), null);
+// 커스텀 provider는 내장 buildArgs를 타지 않으므로 검사 대상이 아니다.
+assert.equal(missingContractFlags('my-cli', 'anything'), null);
+
+// listProviderCapabilities도 계약을 노출한다.
+const listedContracts = listProviderCapabilities();
+assert.deepEqual(listedContracts.codex.contract, providerContract('codex'));
+assert.equal(listedContracts.claude.contract.requiredFlags.includes('--output-format'), true);
+
+console.log('provider CLI contract tests passed');

@@ -139,7 +139,7 @@ harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
 - `--agent-routing <targets>`: IDE/CLI 에이전트가 하네스를 호출하도록 라우팅 파일을 설치합니다.
 
 - `run`: 파이프라인을 실행합니다.
-- `doctor`: 에이전트 CLI 연결 상태를 확인합니다.
+- `doctor`: 에이전트 CLI 연결 상태와 인자 계약을 확인합니다.
 - `show`: `runs/<runId>/manifest.json`을 사람이 읽기 좋은 요약 또는 JSON summary로 보여줍니다.
 - `hermes`: Hermes top-level 운영 명령을 실행합니다.
 - `eval`: 대상 repo의 `.harness.json`과 선택적 `.harness-eval.json`을 기준으로 하네스 준비도와 fixture 기대값을 점검하고 `.harness/eval/`에 결과를 남깁니다.
@@ -1030,6 +1030,31 @@ Hermes는 기본적으로 terminal과 markdown report를 사용합니다. 외부
 - `file`: 에이전트가 `{{finalPath}}` 또는 자체 옵션으로 결과 파일을 직접 쓰는 방식입니다.
 
 provider 연결 정보는 `manifest.json`에 `outputMode`, `defaultTimeoutMs`, `capabilities`, `custom`으로 기록됩니다. `harness doctor`도 선택된 provider의 command, version, output mode, timeout, custom 여부를 보여줍니다.
+
+### CLI 인자 계약 검사
+
+provider CLI는 버전에 따라 인자가 바뀝니다. 하네스가 `codex exec --output-last-message`나 `claude -p --output-format json` 같은 플래그에 의존하므로, 플래그가 사라지거나 이름이 바뀌면 런이 알 수 없는 인자 오류로 실패합니다. **이것이 실제 고장 1순위입니다.**
+
+버전 숫자를 핀으로 박는 대신, 각 provider가 `buildArgs`에서 실제로 쓰는 플래그를 선언하고 `doctor`가 `--help`로 존재를 확인합니다.
+
+```text
+[ok] selected agent: claude - 2.1.238 (Claude Code)
+[ok] selected agent CLI flags: claude - 4 required flag(s) present
+```
+
+플래그가 없으면 실패로 보고합니다.
+
+```text
+[fail] selected agent CLI flags: claude - missing CLI flags: --output-format. The provider CLI may have changed its arguments.
+```
+
+| Provider | 검사하는 플래그 |
+| --- | --- |
+| `codex` | `--cd`, `--sandbox`, `--json`, `--output-last-message` |
+| `claude` | `-p`, `--output-format`, `--permission-mode`, `--allowedTools` |
+| `antigravity` | `--prompt` |
+
+커스텀 `command`/`args`를 쓰는 provider는 내장 `buildArgs`를 타지 않으므로 검사하지 않습니다. 선언한 플래그가 실제 `buildArgs` 출력에 나타나는지는 테스트로 교차 검증합니다.
 
 현재 내장 provider의 기본 실행 형태:
 
