@@ -1,0 +1,9 @@
+{
+  "pipeline": "quick_fix",
+  "workspaceMode": "direct",
+  "protectedBranches": [],
+  "testCommand": "npm test",
+  "validationCommands": [{ "id": "test", "command": "npm test" }],
+  "supervisor": { "enabled": true, "maxSupervisorTurns": 2, "maxStepRetries": 1 },
+  "budget": { "maxProviderCalls": 8, "maxBilledTokens": 3000000 }
+}

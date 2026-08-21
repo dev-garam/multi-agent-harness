@@ -414,6 +414,32 @@ harness show --json <runId>
 
 요약에는 run 상태, repo, pipeline selection, workspace mode, patch path, policy/protected branch decision, runtime contract, retry/fallback, redaction/context truncation, provider usage summary, prompt cache, step 상태, validation 실패, Hermes decision, reporter summary, 주요 artifact 경로가 포함됩니다.
 
+## 벤치마크
+
+`scripts/bench.mjs`는 같은 깨진 fixture를 두 조건으로 돌려 하네스가 실제로 무엇을 더 해주는지 잽니다.
+
+```sh
+npm run bench -- --mode solo --agent claude       # agent CLI 직접 호출(스캐폴딩 없음)
+npm run bench -- --mode harness --agent claude    # harness run
+npm run bench -- --dry                            # LLM 호출 없이 배관만 확인
+```
+
+판정은 fixture의 테스트 명령이 합니다. 모델의 자기 보고나 사람 판단이 개입하지 않습니다 — "고쳤다고 말하는가"가 아니라 "실제로 고쳤는가"를 봅니다. 결과는 `.harness/bench/`에 남습니다.
+
+fixture는 `test/fixtures/bench/`에 있고, 각각 `TASK.md`(에이전트에게 주는 요청)와 `EXPECTED.md`(채점 참고용, 에이전트에게 주지 않음)를 가집니다.
+
+### 1라운드 결과
+
+| fixture | solo | harness | 배수 |
+| --- | --- | --- | ---: |
+| 01-median-off-by-one | PASS $0.267 | PASS $0.785 | 2.9x |
+| 02-leading-space-loss | PASS $0.265 | PASS $0.856 | 3.2x |
+| 합계 | 2/2, $0.532 | 2/2, $1.642 | 3.1x |
+
+**같은 결과에 3.1배 비용이 들었습니다.** Claude Opus가 두 fixture를 스캐폴딩 없이 이미 100% 풀기 때문입니다(천장 효과). 개선 여지가 없는 문제에서는 검증·감독 계층이 오버헤드일 뿐입니다.
+
+이 벤치마크는 "고쳤는가" 하나만 잽니다. 감사 추적, 정책 게이트, 격리 실행 같은 다른 가치는 측정 대상이 아닙니다.
+
 ## 프로젝트 설정
 
 대상 프로젝트 루트에 `.harness.json`을 둘 수 있습니다.
