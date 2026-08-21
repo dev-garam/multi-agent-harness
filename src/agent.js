@@ -15,6 +15,13 @@ const defaultProviders = {
       supportsSandbox: true,
       requiresOutputFile: true
     },
+    // buildArgs가 실제로 사용하는 CLI 플래그. provider CLI가 업데이트되면서
+    // 플래그가 사라지거나 이름이 바뀌면 런은 알 수 없는 인자 오류로 실패한다.
+    // doctor가 --help로 존재를 확인해 그 전에 잡는다(버전 숫자보다 직접적이다).
+    contract: {
+      helpArgs: ['exec', '--help'],
+      requiredFlags: ['--cd', '--sandbox', '--json', '--output-last-message']
+    },
     buildArgs({ repo, step, prompt, finalPath }) {
       const args = [
         'exec',
@@ -47,6 +54,11 @@ const defaultProviders = {
       supportsModel: true,
       supportsSandbox: false,
       requiresOutputFile: false
+    },
+    contract: {
+      helpArgs: ['--help'],
+      // --output-format json은 usage/비용 측정의 전제라 특히 중요하다.
+      requiredFlags: ['-p', '--output-format', '--permission-mode', '--allowedTools']
     },
     // `--output-format json`은 stdout을 단일 JSON 문서로 만든다. 최종 텍스트는
     // result 필드에 들어가고, usage(캐시 토큰 포함)와 total_cost_usd가 함께 실린다.
@@ -97,6 +109,10 @@ const defaultProviders = {
       supportsSandbox: false,
       requiresOutputFile: false
     },
+    contract: {
+      helpArgs: ['--help'],
+      requiredFlags: ['--prompt']
+    },
     buildArgs({ prompt }) {
       return ['run', '--prompt', prompt];
     }
@@ -109,6 +125,29 @@ const OUTPUT_MODES = new Set(['file', 'stdout']);
 
 export function knownProviderNames() {
   return Object.keys(defaultProviders);
+}
+
+/**
+ * provider가 선언한 CLI 인자 계약(도움말 인자 + 필수 플래그)을 돌려준다.
+ * 내장 adapter가 아니면 null.
+ */
+export function providerContract(providerName) {
+  return defaultProviders[providerName]?.contract || null;
+}
+
+/**
+ * --help 출력에서 필수 플래그의 누락을 찾는다(순수 함수).
+ *
+ * null을 반환하면 "검사 대상 아님"이다: 계약이 없는 커스텀 provider이거나
+ * 도움말을 읽지 못한 경우. 빈 배열은 "전부 존재"를 뜻한다.
+ */
+export function missingContractFlags(providerName, helpText) {
+  const contract = providerContract(providerName);
+  if (!contract || helpText === null || helpText === undefined || String(helpText).trim() === '') {
+    return null;
+  }
+  const text = String(helpText);
+  return contract.requiredFlags.filter((flag) => !text.includes(flag));
 }
 
 export function providerCapabilities(providerName) {
@@ -125,7 +164,8 @@ export function listProviderCapabilities() {
         versionArgs: provider.versionArgs,
         outputMode: provider.outputMode,
         defaultTimeoutMs: provider.defaultTimeoutMs,
-        capabilities: provider.capabilities
+        capabilities: provider.capabilities,
+        contract: provider.contract || null
       }
     ])
   );

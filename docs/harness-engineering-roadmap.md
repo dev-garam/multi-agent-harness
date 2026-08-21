@@ -520,7 +520,7 @@ Status: completed
 1. Done: provider capability 표시
 2. Done: provider별 default timeout
 3. Done: output mode 검증
-4. Done: version compatibility warning
+4. Done: CLI 인자 계약 검사. 버전 숫자 핀 대신 buildArgs가 실제로 쓰는 플래그를 provider에 선언(`contract.requiredFlags`)하고 `doctor`가 `--help`로 존재를 확인한다. provider CLI 업데이트로 플래그가 사라지거나 이름이 바뀌는 실제 고장을 직접 잡는다. (2026-08-21 정정: 이전에는 이 항목이 Done으로 적혀 있었으나 실제로는 버전 문자열을 읽어 표시만 했고 호환성 검사는 없었다.)
 5. Done: custom provider doctor
 6. Done: env allowlist는 runtime runner 계약에서 검토
 
