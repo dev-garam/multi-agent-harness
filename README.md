@@ -964,6 +964,27 @@ Token usage (measured in 1/499 run(s))
 
 run 하나를 진단할 때는 `harness show`가 같은 분해를 `Step costs:`로 보여줍니다.
 
+### 역할별 모델 지정
+
+`agent.model`로 provider CLI에 넘길 모델을 정합니다. 역할마다 다르게 줄 수도 있습니다.
+
+```json
+{
+  "agent": { "provider": "claude" },
+  "agents": {
+    "coder": { "provider": "claude", "model": "claude-opus-5" },
+    "reporter": { "provider": "claude", "model": "claude-haiku-4-5-20251001" }
+  },
+  "supervisor": {
+    "agent": { "provider": "claude", "model": "claude-opus-5" }
+  }
+}
+```
+
+`agents.<stepId>`가 해당 스텝의 기본 agent를 덮고, `supervisor.agent`는 `hermes`에 대해 같은 일을 합니다. 항목이 없는 역할은 최상위 `agent`를 씁니다. 파이프라인 정의(`config/pipelines.json`)의 스텝에 `model`이 있으면 그쪽이 우선합니다.
+
+측정해보면 비용은 코드를 바꾸는 일보다 **감독·보고 쪽에 몰려 있으므로**, 절감 여지는 그쪽 모델을 낮추는 데 있습니다. 다만 그때 맞바꾸는 것은 감독 품질이고, 하네스에는 supervisor **판단 품질**을 고정하는 골든이 없습니다(있는 것은 결정 *파싱* 골든뿐입니다). 실제 작업으로 직접 확인한 뒤 쓰세요.
+
 ### 비용 표기를 어떻게 읽어야 하는가
 
 provider CLI가 주는 cost는 **API 요금 기준 환산값**입니다. 구독으로 로그인해 쓰면 실제 청구가 아니라 사용량 한도에서 차감됩니다. 하네스는 사용자의 요금제를 알 수 없으므로 단정하지 않습니다.

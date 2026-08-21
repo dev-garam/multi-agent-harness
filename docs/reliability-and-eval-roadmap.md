@@ -226,7 +226,9 @@ reporter가 결정론이 되면 남는 LLM 스텝은 hermes뿐인데, hermes는 
 
 재개 조건: supervisor 판단 품질 골든(같은 증거에서 같은 결정을 내는지)이 생기면 그때 다시 본다.
 
-**선행 갭(그때 필요): 역할별 모델을 지정할 수단이 없다.** `--model`은 `step.model`에서만 오고, `step`은 `config/pipelines.json`의 파이프라인 정의에서 온다. 그런데 `config/pipelines.json`에는 `model` 필드가 없고, `.harness.json`의 `agents.<role>`은 provider만 바꿀 뿐 model을 step에 주입하지 않는다(`resolveStepAgent`가 전달하지 않음). 즉 "hermes만 더 싼 모델로" 같은 가장 직접적인 절감 수단이 막혀 있다. meta가 75%인 만큼 효과가 큰 항목이다.
+**선행 갭은 해소됐다(2026-08-21).** 벤치마크를 위해 `agent.model`을 구현하면서 함께 열렸다. 이제 `agent.model`(전역), `agents.<role>.model`(역할별), `supervisor.agent.model`(hermes) 모두 동작한다. 즉 "hermes만 더 싼 모델로"가 **설정만으로 가능하다.**
+
+그럼에도 C 자체는 보류를 유지한다. 막힌 것은 수단이 아니라 **검증**이기 때문이다 — 품질 저하를 잴 골든이 여전히 없다. 수단이 열렸으므로, 재개 조건(supervisor 판단 품질 골든)만 충족되면 바로 실험할 수 있다.
 
 ### B6a 측정 결과와 한계
 
