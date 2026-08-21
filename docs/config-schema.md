@@ -437,3 +437,9 @@ Set `workspace.carryUncommitted: true` (or pass `--carry-uncommitted`) to copy t
 The original repo is never modified, including its index: tracked changes are taken with `git diff HEAD --binary` rather than `git add`, and untracked files are copied using `--exclude-standard` so ignored paths such as `node_modules` are left behind. If carrying fails the workspace is removed and the run stops, because silently running against `HEAD` while the user believes their edits were included is the worst outcome.
 
 Default is `true`, paired with the isolated default `workspaceMode`. Isolation whose agent cannot see your in-progress edits is isolation you cannot use, so the two defaults move together. Set it to `false` to pin the workspace strictly to `HEAD`.
+
+### resources.progressIntervalMs
+
+How often the harness reports that a running agent step is still alive, in milliseconds. Default `30000`; `0` disables it.
+
+Provider CLIs produce no output until they finish in non-interactive mode, so a long step looks identical to a hung one. A measured run spent 204 seconds inside a single `coder` step with nothing on screen. The reporter prints elapsed time, whether any output has arrived yet, and — once the deadline is close — how long remains, so the operator can decide whether to keep waiting.

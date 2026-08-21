@@ -1004,6 +1004,23 @@ agent/validation/tool 실행 주변에는 가벼운 middleware runtime이 붙습
 }
 ```
 
+### 진행 표시
+
+provider CLI는 비대화형 모드에서 **완료 전까지 아무것도 출력하지 않습니다.** 실측한 run에서 coder 한 스텝이 204초였는데, 그 동안 화면에는 스텝 헤더만 있고 아무 변화가 없습니다. 죽었는지 돌고 있는지 구분되지 않습니다.
+
+하네스가 주기적으로 살아있음을 알립니다.
+
+```text
+== coder ==
+  ... coder running 30s (no output yet)
+  ... coder running 1m 00s (no output yet)
+  ... coder running 9m 30s (no output yet, timeout in 30s)
+```
+
+timeout이 가까워지면 남은 시간을 함께 알립니다. 기다릴지 끊을지 판단할 수 있어야 하기 때문입니다.
+
+간격은 `resources.progressIntervalMs`로 조정하며 기본은 30초입니다. 짧은 스텝에는 아무것도 찍히지 않습니다. `0`으로 두면 끕니다.
+
 ### 실패 유형과 처리
 
 실패는 유형으로 나뉘고 각각 다르게 처리됩니다. `exit 1` 하나로는 다음에 뭘 해야 할지 알 수 없기 때문입니다.

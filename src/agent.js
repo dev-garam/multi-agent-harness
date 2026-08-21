@@ -253,6 +253,47 @@ function appendLimited(current, value, maxBytes) {
   return { text: limited, truncated: true };
 }
 
+/** 경과 시간을 사람이 읽기 좋게. 분 단위가 넘어가면 분+초로 쓴다. */
+function formatElapsed(ms) {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
+}
+
+/**
+ * agent가 도는 동안 살아있음을 알린다.
+ *
+ * provider CLI는 비대화형(-p) 모드에서 완료 전까지 stdout을 내보내지 않는다.
+ * 실측한 run에서 coder 한 스텝이 204초였는데 그 동안 화면에 아무것도 나오지
+ * 않는다. 죽은 것인지 도는 것인지 구분되지 않는 것이 문제다.
+ *
+ * timeout이 가까워지면 남은 시간을 함께 알린다. 기다릴지 끊을지 판단할 수 있어야 한다.
+ */
+function startProgressReporter({ stepId, startedAt, timeoutMs, intervalMs, getLastOutputAt }) {
+  if (!intervalMs || intervalMs <= 0) {
+    return () => {};
+  }
+
+  const timer = setInterval(() => {
+    const elapsed = Date.now() - startedAt.getTime();
+    const remaining = timeoutMs - elapsed;
+    const lastOutputAt = getLastOutputAt();
+    const detail = lastOutputAt
+      ? `last output ${formatElapsed(Date.now() - lastOutputAt.getTime())} ago`
+      : 'no output yet';
+    // 남은 시간이 한 주기 안쪽이면 그것을 먼저 알린다.
+    const suffix = remaining <= intervalMs * 2 && remaining > 0
+      ? `, timeout in ${formatElapsed(remaining)}`
+      : '';
+    process.stderr.write(`  ... ${stepId} running ${formatElapsed(elapsed)} (${detail}${suffix})\n`);
+  }, intervalMs);
+  timer.unref();
+
+  return () => clearTimeout(timer) || clearInterval(timer);
+}
+
 function tailText(value, maxBytes = 4096) {
   const buffer = Buffer.from(String(value || ''));
   return buffer.subarray(Math.max(0, buffer.length - maxBytes)).toString();
@@ -285,6 +326,13 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
   let stdoutTruncated = false;
   let stderrTruncated = false;
   let lastOutputAt = null;
+  const stopProgress = startProgressReporter({
+    stepId: step.id,
+    startedAt,
+    timeoutMs,
+    intervalMs: Number(step.progressIntervalMs ?? resources.progressIntervalMs ?? 0),
+    getLastOutputAt: () => lastOutputAt
+  });
   // 청크 경계 secret 누수를 막기 위해 스트림 redactor(줄 단위)를 사용한다.
   const stdoutRedactor = redactStream
     ? redactStream({ surface: 'agent.stdout', stepId: step.id, agent: agent.name })
@@ -371,6 +419,9 @@ export async function runAgentStep({ repo, runDir, step, prompt, promptPath, age
   } catch (error) {
     stderr += `${error instanceof Error ? error.message : String(error)}\n`;
     exitCode = 1;
+  } finally {
+    // 어떤 경로로 끝나도 타이머를 멈춘다.
+    stopProgress();
   }
 
   // 스트림 redactor에 남은 미완성 줄(carry)을 마스킹해 마저 반영한다.
