@@ -168,6 +168,28 @@ git 히스토리를 보면 `worktree`·`patch`·`docker`가 전부 `edfff72 "Har
 
 fixture와 러너는 자산으로 남긴다. 하네스 자체를 변경할 때 "여전히 고치는가 / 비용이 얼마나 늘었는가"를 재는 회귀 도구로 쓴다.
 
+### 실패 복구 경로 점검 (2026-08-21)
+
+실패 유형을 실측으로 분류했다(1,212 run 중 failed 368).
+
+| 유형 | 건수 |
+|------|-----:|
+| policy(요청 차단) | 146 |
+| agent-failed | 76 |
+| validation-failed | 75 |
+| policy-block(change-risk / no-change) | 68 |
+| hermes-stopped | 2 |
+
+**validation 실패 75건 전부에서 supervisor가 `continue`를 냈다.** 그런데 하네스는 `activeValidationFailures`가 남아 있으면 런을 failed로 끝낸다. 즉 이 조합에서는 supervisor 판단이 반영되지도 않고 복구도 일어나지 않는다. **복구율 0%는 "복구가 실패해서"가 아니라 "복구를 시도조차 하지 않아서"였다.**
+
+(75건 대부분이 mock이고 mock supervisor는 시나리오가 아니면 항상 continue를 낸다. 따라서 이 숫자는 판단 품질이 아니라 **구조적 허점** — 잘못된 continue가 그냥 통과한다는 점 — 을 보여주는 것으로 읽어야 한다.)
+
+→ `#overrideUnsafeContinue`를 추가했다. 검증 실패가 열려 있는 상태의 `continue`를 `run_validation` 한 번으로 되돌린다. **run당 1회**다. 무제한이면 continue → 재검증 → continue로 루프가 되므로, 두 번째 continue는 그대로 둔다. `maxSupervisorTurns` 예산이 남아 있을 때만 발동한다. 뒤집은 사실과 원래 결정을 모두 `supervisorDecisions[].overriddenBy`에 남긴다(감사 추적). `supervisor.forceRevalidateOnFailure: false`로 끌 수 있다.
+
+e2e 테스트로 세 경로를 고정했다: 재검증 통과 시 복구(기존에 없던 경로), 재검증도 실패할 때 1회만 뒤집고 유한 종료, 옵트아웃 시 기존 동작.
+
+**남은 것: agent 실패의 재시도가 기본 0회다.** `retryOnExitCodes`(timeout 124)와 `retryOnStderrPatterns`(rate limit, ENOENT 등) 분류기는 잘 만들어져 있는데 `agentRetries`/`validationRetries` 기본값이 0이라 한 번도 발동하지 않는다. 실제로 `2026-07-07_170119_373`에서 coder가 `spawn claude ENOENT`로 죽었을 때 재시도 없이 끝났다. 기본값을 1로 올리는 것은 비용·시간이 늘어나는 변경이라 별도 판단이 필요하다.
+
 ### ⏳ 남음 (후속)
 
 | ID | 작업 | 우선순위 / 비고 |
