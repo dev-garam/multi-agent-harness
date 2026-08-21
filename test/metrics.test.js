@@ -69,3 +69,112 @@ assert.match(text, /Total runs: 3/);
 assert.match(text, /claude:/);
 
 console.log('metrics tests passed');
+
+// ---------------------------------------------------------------------------
+// 토큰/비용 집계.
+// ---------------------------------------------------------------------------
+
+// usageSummary가 없는 기존 fixture는 측정 대상이 0건이어야 한다.
+assert.equal(metrics.usage.runs, 0);
+assert.equal(metrics.usage.totalRuns, 3);
+assert.equal(metrics.usage.billedTokens, 0);
+assert.match(formatMetrics(metrics), /Token usage: no runs with parsed usage \(0\/3\)/);
+
+const usageManifests = [
+  {
+    status: 'succeeded',
+    pipeline: 'quick_fix',
+    agent: { provider: 'claude' },
+    steps: [],
+    usageSummary: {
+      parsedUsageEntries: 3,
+      totalTokens: 7370,
+      billedTokens: 320000,
+      cacheReadTokens: 275000,
+      cacheCreationTokens: 37000,
+      agentTurns: 11,
+      costUsd: 0.7
+    }
+  },
+  {
+    // 승격된 run은 실제로 완주한 파이프라인(completedPipeline) 기준으로 잡힌다.
+    status: 'succeeded',
+    pipeline: 'quick_fix',
+    completedPipeline: 'safe_fix',
+    agent: { provider: 'claude' },
+    steps: [],
+    usageSummary: {
+      parsedUsageEntries: 6,
+      totalTokens: 12000,
+      billedTokens: 680000,
+      cacheReadTokens: 600000,
+      cacheCreationTokens: 60000,
+      agentTurns: 22,
+      costUsd: 1.3
+    }
+  },
+  {
+    // status=parsed지만 값이 전부 0인 run(구버전 manifest·regex 오탐)은
+    // 분모에서 빠져야 한다. 포함하면 평균이 그만큼 낮게 나온다.
+    status: 'succeeded',
+    pipeline: 'review_only',
+    agent: { provider: 'codex' },
+    steps: [],
+    usageSummary: {
+      parsedUsageEntries: 1,
+      totalTokens: 0,
+      billedTokens: 0,
+      costUsd: 0
+    }
+  },
+  {
+    // usageSummary 자체가 없는 run도 분모에서 빠진다.
+    status: 'succeeded',
+    pipeline: 'quick_fix',
+    agent: { provider: 'mock' },
+    steps: []
+  }
+];
+
+const usageMetrics = computeMetrics(usageManifests);
+
+// 측정 대상은 실제 값이 있는 2건뿐이다(총 4 run 중).
+assert.equal(usageMetrics.usage.runs, 2);
+assert.equal(usageMetrics.usage.totalRuns, 4);
+
+assert.equal(usageMetrics.usage.billedTokens, 1000000);
+assert.equal(usageMetrics.usage.cacheReadTokens, 875000);
+assert.equal(usageMetrics.usage.totalTokens, 19370);
+assert.equal(usageMetrics.usage.agentTurns, 33);
+assert.equal(Number(usageMetrics.usage.costUsd.toFixed(4)), 2);
+
+// 평균은 측정된 2건 기준(4건이 아니다).
+assert.equal(usageMetrics.usage.avgBilledTokens, 500000);
+assert.equal(Number(usageMetrics.usage.avgCostUsd.toFixed(4)), 1);
+
+// 캐시 조회 비중.
+assert.equal(usageMetrics.usage.cacheReadRatio, 0.875);
+
+// 파이프라인별: 승격 run은 completedPipeline(safe_fix)으로 잡힌다.
+assert.equal(usageMetrics.usage.byPipeline.quick_fix.runs, 1);
+assert.equal(usageMetrics.usage.byPipeline.quick_fix.billedTokens, 320000);
+assert.equal(usageMetrics.usage.byPipeline.safe_fix.runs, 1);
+assert.equal(usageMetrics.usage.byPipeline.safe_fix.billedTokens, 680000);
+// 값이 0인 review_only run은 아예 항목이 생기지 않는다.
+assert.equal(usageMetrics.usage.byPipeline.review_only, undefined);
+
+// provider별 비용은 측정된 run만 센다.
+assert.equal(usageMetrics.providerSuccessRate.claude.usageRuns, 2);
+assert.equal(Number(usageMetrics.providerSuccessRate.claude.costUsd.toFixed(4)), 2);
+assert.equal(usageMetrics.providerSuccessRate.codex.usageRuns, undefined);
+
+// 포맷 출력.
+const usageText = formatMetrics(usageMetrics);
+assert.match(usageText, /Token usage \(measured in 2\/4 run\(s\)\)/);
+assert.match(usageText, /Billed tokens:\s+1,000,000 \(avg 500,000\/run\)/);
+assert.match(usageText, /Cache read:\s+875,000 \(87\.5% of billed\)/);
+assert.match(usageText, /Cost USD:\s+\$2\.0000/);
+// 비싼 파이프라인이 먼저 나온다.
+assert.ok(usageText.indexOf('safe_fix:') < usageText.indexOf('quick_fix:'));
+
+console.log('metrics usage aggregation tests passed');
