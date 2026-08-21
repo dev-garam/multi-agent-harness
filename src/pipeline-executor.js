@@ -920,8 +920,14 @@ export class PipelineExecutor {
 
       this.stepAttempts[baseStep.id] = (this.stepAttempts[baseStep.id] || 0) + 1;
       const attempt = this.stepAttempts[baseStep.id];
-      const step = stepForAttempt(baseStep, attempt);
+      // stepForAttempt는 attempt<=1이면 원본을 그대로 돌려주므로 복사해서 쓴다.
+      // 파이프라인 정의를 실행 중에 변형하면 안 된다.
+      const step = { ...stepForAttempt(baseStep, attempt) };
       const stepAgent = resolveStepAgent({ defaultAgent: this.agent, projectConfig: this.projectConfig, stepId: baseStep.id });
+      // 설정에서 온 모델을 step에 반영한다. 파이프라인 정의에 model이 있으면 그것이 우선.
+      if (!step.model && stepAgent.model) {
+        step.model = stepAgent.model;
+      }
       const stepAgentVersion = await this.#cachedAgentVersion(stepAgent);
 
       if (baseStep.id === 'reporter') {
