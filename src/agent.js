@@ -218,6 +218,9 @@ function providerFromConfig(agentConfig = {}) {
       outputMode
     },
     custom: !base || Boolean(agentConfig.command || agentConfig.args),
+    // 역할/에이전트 단위 모델 지정. buildArgs는 step.model을 보므로 실행부에서
+    // step에 주입된다. 파이프라인 정의(config/pipelines.json)의 model이 우선한다.
+    model: agentConfig.model || null,
     args: agentConfig.args,
     base
   };

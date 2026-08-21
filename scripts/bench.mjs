@@ -26,12 +26,13 @@ const harnessRoot = fileURLToPath(new URL('..', import.meta.url));
 const fixturesRoot = path.join(harnessRoot, 'test', 'fixtures', 'bench');
 
 function parseArgs(argv) {
-  const options = { mode: 'harness', agent: 'claude', fixtures: 'all', dry: false };
+  const options = { mode: 'harness', agent: 'claude', fixtures: 'all', dry: false, model: null };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--mode') options.mode = argv[++index];
     else if (arg === '--agent') options.agent = argv[++index];
     else if (arg === '--fixtures') options.fixtures = argv[++index];
+    else if (arg === '--model') options.model = argv[++index];
     else if (arg === '--dry') options.dry = true;
   }
   return options;
@@ -63,10 +64,23 @@ function run(command, args, { cwd, timeoutMs = 15 * 60 * 1000 } = {}) {
 }
 
 /** fixture를 임시 디렉터리에 복사하고 git repo로 만든다(원본은 건드리지 않는다). */
-async function materialize(fixtureName) {
+/** fixture의 .harness.json에 모델을 주입한다(원본 fixture는 건드리지 않는다). */
+async function applyModel(workdir, model) {
+  if (!model) return;
+  const configPath = path.join(workdir, '.harness.json');
+  if (!existsSync(configPath)) return;
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
+  config.agent = { ...(config.agent || {}), model };
+  await writeFile(configPath, JSON.stringify(config, null, 2) + '\n');
+}
+
+async function materialize(fixtureName, model) {
   const source = path.join(fixturesRoot, fixtureName);
   const workdir = await mkdtemp(path.join(tmpdir(), `bench-${fixtureName}-`));
   await cp(source, workdir, { recursive: true });
+  // 설정 주입은 baseline 커밋 전에 끝낸다. 그러지 않으면 러너가 만든 변경이
+  // agent가 만든 변경과 섞여 changedFiles가 부풀고 판정이 흐려진다.
+  await applyModel(workdir, model);
   await run('git', ['init', '-b', 'work'], { cwd: workdir });
   await run('git', ['config', 'user.email', 'bench@example.com'], { cwd: workdir });
   await run('git', ['config', 'user.name', 'bench'], { cwd: workdir });
@@ -135,7 +149,7 @@ async function harnessUsage(stderr) {
   }
 }
 
-async function runSolo({ workdir, request, agent }) {
+async function runSolo({ workdir, request, agent, model }) {
   if (agent !== 'claude') {
     // 다른 provider는 인자 계약이 달라 별도 구현이 필요하다. 지금은 claude만 지원.
     return { skipped: `solo mode is only implemented for claude (got ${agent})` };
@@ -144,7 +158,8 @@ async function runSolo({ workdir, request, agent }) {
     '-p', request,
     '--output-format', 'json',
     '--permission-mode', 'acceptEdits',
-    '--allowedTools', 'Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(mkdir:*),Bash(touch:*),Bash(cp:*),Bash(mv:*)'
+    '--allowedTools', 'Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(mkdir:*),Bash(touch:*),Bash(cp:*),Bash(mv:*)',
+    ...(model ? ['--model', model] : [])
   ], { cwd: workdir });
   return { exitCode: result.exitCode, usage: sumClaudeUsage(result.stdout), timedOut: result.timedOut };
 }
@@ -173,11 +188,11 @@ async function main() {
     process.exit(1);
   }
 
-  console.error(`bench: mode=${options.mode} agent=${options.agent} fixtures=${selected.join(', ')}`);
+  console.error(`bench: mode=${options.mode} agent=${options.agent}${options.model ? ` model=${options.model}` : ''} fixtures=${selected.join(', ')}`);
   const results = [];
 
   for (const fixture of selected) {
-    const workdir = await materialize(fixture);
+    const workdir = await materialize(fixture, options.model);
     const request = (await readFile(path.join(fixturesRoot, fixture, 'TASK.md'), 'utf8')).trim();
 
     // 시작 상태가 정말 실패인지 확인한다. 이미 통과하면 fixture가 망가진 것이다.
@@ -196,7 +211,7 @@ async function main() {
 
     const startedAt = Date.now();
     const outcome = options.mode === 'solo'
-      ? await runSolo({ workdir, request, agent: options.agent })
+      ? await runSolo({ workdir, request, agent: options.agent, model: options.model })
       : await runHarness({ workdir, request, agent: options.agent });
     const durationMs = Date.now() - startedAt;
 
@@ -235,6 +250,7 @@ async function main() {
     schemaVersion: 1,
     mode: options.mode,
     agent: options.agent,
+    model: options.model,
     fixtures: selected,
     passed,
     scored: scored.length,
@@ -247,7 +263,8 @@ async function main() {
   const outDir = path.join(harnessRoot, '.harness', 'bench');
   await mkdir(outDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const outPath = path.join(outDir, `${stamp}_${options.mode}_${options.agent}.json`);
+  const modelTag = options.model ? `_${options.model.replace(/[^a-zA-Z0-9.-]/g, '-')}` : '';
+  const outPath = path.join(outDir, `${stamp}_${options.mode}_${options.agent}${modelTag}.json`);
   await writeFile(outPath, JSON.stringify(report, null, 2) + '\n');
 
   console.error('');
