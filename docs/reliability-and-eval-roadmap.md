@@ -46,7 +46,9 @@
 
 다른 에이전트의 구조 지적을 항목별로 검증했다. 결과가 갈렸다.
 
-**사실로 확인된 것** — 기본값이 안전 논지와 반대(`workspaceMode: direct`, `runner: local`), 상태가 프로젝트별이 아니라 하네스 루트에 쌓임(queue·memory·feedback·reports·promotions·eval 6종), provider CLI 인자 취약성과 버전 핀 부재, "multi-agent"라는 이름과 순차 실행(`Promise.all` 없음)의 불일치, 실제 버그 픽스처 기반 결과 지표 부재.
+**사실로 확인된 것** — 기본값이 안전 논지와 반대(`workspaceMode: direct`, `runner: local`), provider CLI 인자 취약성과 버전 핀 부재, 실제 버그 픽스처 기반 결과 지표 부재.
+
+**조사 후 성격이 달라진 것** — "상태가 하네스 루트에 쌓인다"는 지적은 코드를 보면 의도된 설계다. `enqueueHermesTask`가 task마다 `repo`를 저장하고 memory도 `repos.json`으로 repo별 그룹화한다. hermes는 여러 프로젝트를 관리하는 top-level operator로 설계됐고 README에도 그렇게 적혀 있다. 실질적 제약은 **큐가 전역이라 `tick`이 한 번에 하나씩 처리하며, 한 repo의 작업이 다른 repo를 막을 수 있다**는 것 하나다. memory·feedback·reports는 repo별로 구분되어 섞이지 않는다.
 
 이 중 CLI 인자 취약성은 대응했다(위 `cli-contract`). 이 지적을 확인하다 **문서-코드 불일치**도 하나 발견했다: 엔지니어링 로드맵 Phase 13에 "version compatibility warning: Done"으로 적혀 있었으나 실제로는 버전 문자열을 읽어 표시만 했고 호환성 검사는 없었다. 해당 항목을 사실대로 정정하고 실제 구현 형태를 기록했다.
 
@@ -113,6 +115,14 @@
 원인은 천장 효과다. Claude Opus가 두 fixture를 스캐폴딩 없이 이미 100% 푼다 — 어려운 쪽으로 설계한 02(증상과 원인의 위치가 다르고, 그럴듯한 오답이 테스트에 걸리는 함정까지 넣은 것)도 45초 만에 풀었다. **개선할 여지가 0인 문제에서는 검증·감독 계층이 오버헤드일 뿐이다.**
 
 주의: 이 벤치마크는 하네스의 다른 가치(감사 추적, 정책 게이트, 격리 실행)를 재지 않는다. 재는 것은 "고쳤는가" 하나뿐이다.
+
+### 기본값이 왜 direct/local인가 (2026-08-21 조사)
+
+`direct`는 격리가 없는 모드다(`executionRepo: repo`, `isolated: false`). agent가 원본 파일을 직접 고치고, `local` runner는 현재 머신 셸에서 실행한다. 통제 도구 포지션과 정면으로 어긋나며 `security-model.md`가 경고하는 바로 그 조합이다.
+
+git 히스토리를 보면 `worktree`·`patch`·`docker`가 전부 `edfff72 "Harden harness runtime"` 한 커밋에서 함께 추가됐다. 즉 **`direct`/`local`이 원래 유일한 모드였고 격리는 나중에 얹은 것이다.** 기본값이 그대로 남은 것은 설계상 선택이 아니라 역사적 잔재다.
+
+바꾼다면 `worktree`가 자연스럽다. `harness apply`가 생겨 결과를 원본에 옮기는 마찰도 줄었다. 다만 기존 동작이 바뀌는 파괴적 변경이므로 사용자 판단이 필요하다. 보류.
 
 ### 2라운드: 약한 모델로 재측정 (Haiku)
 
