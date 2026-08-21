@@ -846,6 +846,23 @@ Token usage (measured in 1/499 run(s))
     quick_fix: $0.6935, 319,510 billed (1 run(s))
 ```
 
+출력에는 역할별·범주별 분해가 함께 나옵니다.
+
+```text
+  Agent steps:     3 (avg $0.2312/step)
+  By category:
+    meta   (supervise/report): $0.5200 75.0%, 2 step(s)
+    write  (code changes): $0.1735 25.0%, 1 step(s)
+  By role:
+    hermes: $0.3054 44.0%, 119,269 billed, 4 turn(s)
+    reporter: $0.2146 30.9%, 93,163 billed, 3 turn(s)
+    coder: $0.1735 25.0%, 107,078 billed, 4 turn(s)
+```
+
+범주는 `write`(파일을 실제로 바꾸는 스텝), `review`(계획·검증), `meta`(감독·보고)로 나뉩니다. **실측한 위 run에서는 실제 코드 변경이 25%이고 감독·보고가 75%였습니다** — 오버헤드가 실제 작업의 3배입니다. `avg $/step`은 스텝마다 새 CLI 프로세스가 뜨는 구조라 사실상 스텝당 고정비입니다.
+
+run 하나를 진단할 때는 `harness show`가 같은 분해를 `Step costs:`로 보여줍니다.
+
 `measured in N/M`의 격차 자체가 지표입니다. usage를 노출하지 않는 provider나 구버전 manifest는 분모에서 빠지므로, 이 비율이 낮으면 "소비가 적은 것"이 아니라 "측정이 안 되고 있는 것"입니다. 판정 기준은 파싱 상태가 아니라 실제 값의 유무입니다.
 
 ### 역할별 컨텍스트 선별
