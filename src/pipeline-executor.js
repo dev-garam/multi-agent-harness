@@ -11,7 +11,7 @@ import { inspectChanges, inspectionSummary } from './inspection.js';
 import { evaluateChangeRisk, evaluatePolicy, evaluateProtectedBranchPolicy, policyFromProjectConfig } from './policy.js';
 import { finalizeWorkspace, prepareWorkspace, workspaceModeFromOptions } from './workspace.js';
 import { parseReporterSummary } from './reporter-summary.js';
-import { appendSupervisorInstructions, parseSupervisorDecision } from './supervisor.js';
+import { appendSupervisorInstructions, parseSupervisorDecision, supervisorInstructionsSection } from './supervisor.js';
 import { gitSnapshot } from './git.js';
 import { resourceConfigFromProjectConfig } from './resources.js';
 import { appendManifestStep, saveManifest } from './manifest.js';
@@ -21,6 +21,7 @@ import { appendRuntimeSummary, createHarnessRuntime } from './middleware.js';
 import { runToolLifecycle, toolConfigsFromProjectConfig } from './tools.js';
 import { writePromptCacheArtifact } from './prompt-cache.js';
 import { selectPipeline } from './pipeline-selection.js';
+import { ContextLedger, contextSelectionFromProjectConfig } from './context-ledger.js';
 import { formatUsageSummary, summarizeManifestUsage } from './usage.js';
 
 const HERMES_STEP_ID = 'hermes';
@@ -497,7 +498,11 @@ export class PipelineExecutor {
   }
 
   #initLoopState() {
-    this.previousOutputs = '';
+    // 컨텍스트는 누적 문자열이 아니라 섹션 원장으로 관리한다. 선별이 꺼져 있으면
+    // render() 결과가 기존 누적 문자열과 바이트 동일하다.
+    this.context = new ContextLedger({
+      selection: contextSelectionFromProjectConfig(this.projectConfig)
+    });
     this.activeValidationFailures = [];
     this.validationAfter = new Set(this.selected.pipeline.validationAfter || []);
     this.stepAttempts = {};
@@ -646,14 +651,16 @@ export class PipelineExecutor {
         reason: 'no validation commands configured'
       };
       await appendManifestStep(runDir, manifest, skipped);
-      return {
-        failures: [],
-        previousOutputs: `${this.previousOutputs}\n\n## ${validationStageId}\nNo validation commands configured.`
-      };
+      this.context.push({
+        kind: 'validation',
+        baseStepId: step.id,
+        stepId: validationStageId,
+        text: `## ${validationStageId}\nNo validation commands configured.`
+      });
+      return { failures: [] };
     }
 
     const failures = [];
-    let nextPreviousOutputs = this.previousOutputs;
 
     for (const validation of validationCommands) {
       const validationId = validationIdForAttempt(validation, step, attempt);
@@ -705,20 +712,19 @@ export class PipelineExecutor {
         }
       }
 
-      nextPreviousOutputs += `\n\n## validation:${validationResult.id}\n${validationSummary(validationResult)}`;
+      this.context.push({
+        kind: 'validation',
+        baseStepId: step.id,
+        stepId: validationResult.id,
+        text: `## validation:${validationResult.id}\n${validationSummary(validationResult)}`
+      });
 
       if (validationResult.exitCode !== 0) {
         failures.push(validationResult);
       }
     }
 
-    return {
-      failures,
-      previousOutputs: harnessRuntime.trimPreviousOutputs(nextPreviousOutputs, {
-        stepId: step.id,
-        stage: 'validation'
-      })
-    };
+    return { failures };
   }
 
   async #runInspectionStage({ step, attempt }) {
@@ -743,7 +749,12 @@ export class PipelineExecutor {
     const assessmentLine = changeRisk.requiresApproval
       ? `policyAssessment: requires human approval\n${changeRisk.reasons.map((reason) => `- ${reason}`).join('\n')}`
       : 'policyAssessment: no additional approval required';
-    return `${this.previousOutputs}\n\n## inspection:${result.id}\n${inspectionSummary(result)}\n${assessmentLine}`;
+    this.context.push({
+      kind: 'inspection',
+      baseStepId: step.id,
+      stepId: result.id,
+      text: `## inspection:${result.id}\n${inspectionSummary(result)}\n${assessmentLine}`
+    });
   }
 
   // C2b 하드 블록: inspection이 실제 diff에서 승인 필요를 판정했고, 옵트인
@@ -796,13 +807,24 @@ export class PipelineExecutor {
       if (baseStep.id === 'reporter') {
         appendRuntimeSummary(this.manifest, this.harnessRuntime);
         this.manifest.usageSummary = summarizeManifestUsage(this.manifest);
-        this.previousOutputs = `${this.previousOutputs}\n\n## harness usage summary\n${formatUsageSummary(this.manifest.usageSummary)}`;
+        this.context.push({
+          kind: 'usage',
+          baseStepId: baseStep.id,
+          text: `## harness usage summary\n${formatUsageSummary(this.manifest.usageSummary)}`
+        });
       }
 
+      const contextStats = this.context.stats(baseStep.id);
+      if (contextStats.applied) {
+        this.harnessRuntime.recordEvent('context:selection', contextStats);
+      }
       const rawPrompt = await renderPrompt(step, {
         request: this.request,
         repo: this.executionRepo,
-        previousOutputs: this.previousOutputs,
+        previousOutputs: this.harnessRuntime.trimPreviousOutputs(
+          this.context.render(baseStep.id),
+          { stepId: baseStep.id, stage: 'prompt' }
+        ),
         projectConfig: this.projectConfig,
         validationCommands: this.validationCommands,
         supervisorInstructions: this.supervisorInstructions
@@ -845,7 +867,11 @@ export class PipelineExecutor {
             reason: 'dry-run'
           };
           await appendManifestStep(this.runDir, this.manifest, skipped);
-          this.previousOutputs += `\n\n## validation after ${step.id}\nSkipped because this was a dry run.`;
+          this.context.push({
+            kind: 'validation',
+            baseStepId: baseStep.id,
+            text: `## validation after ${step.id}\nSkipped because this was a dry run.`
+          });
         }
 
         this.stepIndex += 1;
@@ -867,10 +893,12 @@ export class PipelineExecutor {
           surface: 'agent.final',
           stepId: step.id
         }).text;
-        this.previousOutputs = this.harnessRuntime.trimPreviousOutputs(
-          `${this.previousOutputs}\n\n## ${step.id}\n${this.harnessRuntime.trimStepOutput(output, { stepId: step.id })}`,
-          { stepId: step.id }
-        );
+        this.context.push({
+          kind: 'agent',
+          baseStepId: baseStep.id,
+          stepId: step.id,
+          text: `## ${step.id}\n${this.harnessRuntime.trimStepOutput(output, { stepId: step.id })}`
+        });
       }
 
       if (result.exitCode !== 0) {
@@ -890,15 +918,10 @@ export class PipelineExecutor {
           step: baseStep,
           attempt
         });
-        this.previousOutputs = validationStage.previousOutputs;
         this.activeValidationFailures = validationStage.failures;
-        this.previousOutputs = await this.#runInspectionStage({
+        await this.#runInspectionStage({
           step: baseStep,
           attempt
-        });
-        this.previousOutputs = this.harnessRuntime.trimPreviousOutputs(this.previousOutputs, {
-          stepId: baseStep.id,
-          stage: 'inspection'
         });
         await this.#enforceChangeRiskGate({ step: baseStep });
       }
@@ -966,12 +989,11 @@ export class PipelineExecutor {
       if (targetStep && this.supervisorTurns < this.supervisorConfig.maxSupervisorTurns) {
         this.validationAttempts[targetStep.id] = (this.validationAttempts[targetStep.id] || this.stepAttempts[targetStep.id] || 0) + 1;
         this.supervisorInstructions = appendSupervisorInstructions('', decision);
-        this.previousOutputs = appendSupervisorInstructions(this.previousOutputs, decision);
+        this.context.push({ kind: 'supervisor', text: supervisorInstructionsSection(decision) });
         const validationStage = await this.#runValidationStage({
           step: targetStep,
           attempt: this.validationAttempts[targetStep.id]
         });
-        this.previousOutputs = validationStage.previousOutputs;
         this.activeValidationFailures = validationStage.failures;
         this.stepIndex = findStepIndex(this.selected.pipeline.steps, HERMES_STEP_ID);
         return true;
@@ -979,9 +1001,12 @@ export class PipelineExecutor {
 
       this.supervisorTerminalStatus = 'incomplete';
       this.shouldStopAfterReporter = true;
-      this.previousOutputs += `\n\n## hermes validation rerun not performed\n` +
-        `targetStep: ${decision.targetStep || '(auto)'}\n` +
-        `reason: validation target was unavailable or supervisor turn limit was reached.`;
+      this.context.push({
+        kind: 'note',
+        text: `## hermes validation rerun not performed\n` +
+          `targetStep: ${decision.targetStep || '(auto)'}\n` +
+          `reason: validation target was unavailable or supervisor turn limit was reached.`
+      });
       this.stepIndex += 1;
       return true;
     }
@@ -993,7 +1018,7 @@ export class PipelineExecutor {
         this.validationAfter = new Set(this.selected.pipeline.validationAfter || []);
         this.escalatedToSafeFix = true;
         this.supervisorInstructions = appendSupervisorInstructions('', decision);
-        this.previousOutputs = appendSupervisorInstructions(this.previousOutputs, decision);
+        this.context.push({ kind: 'supervisor', text: supervisorInstructionsSection(decision) });
         this.manifest.pipelineChanges.push({
           from: previousPipeline,
           to: this.selected.pipelineName,
@@ -1009,8 +1034,11 @@ export class PipelineExecutor {
 
       this.supervisorTerminalStatus = 'incomplete';
       this.shouldStopAfterReporter = true;
-      this.previousOutputs += `\n\n## hermes escalation not performed\n` +
-        `reason: safe_fix was unavailable, already active, or supervisor turn limit was reached.`;
+      this.context.push({
+        kind: 'note',
+        text: `## hermes escalation not performed\n` +
+          `reason: safe_fix was unavailable, already active, or supervisor turn limit was reached.`
+      });
       this.stepIndex += 1;
       return true;
     }
@@ -1030,16 +1058,19 @@ export class PipelineExecutor {
       if (canRerun && retryCount < this.supervisorConfig.maxStepRetries && this.supervisorTurns < this.supervisorConfig.maxSupervisorTurns) {
         this.stepRetries[decision.targetStep] = retryCount + 1;
         this.supervisorInstructions = appendSupervisorInstructions('', decision);
-        this.previousOutputs = appendSupervisorInstructions(this.previousOutputs, decision);
+        this.context.push({ kind: 'supervisor', text: supervisorInstructionsSection(decision) });
         this.stepIndex = targetIndex;
         return true;
       }
 
       this.supervisorTerminalStatus = 'incomplete';
       this.shouldStopAfterReporter = true;
-      this.previousOutputs += `\n\n## hermes rerun not performed\n` +
-        `targetStep: ${decision.targetStep || '(none)'}\n` +
-        `reason: rerun was not allowed, target was unavailable, or retry limits were reached.`;
+      this.context.push({
+        kind: 'note',
+        text: `## hermes rerun not performed\n` +
+          `targetStep: ${decision.targetStep || '(none)'}\n` +
+          `reason: rerun was not allowed, target was unavailable, or retry limits were reached.`
+      });
       this.stepIndex += 1;
       return true;
     }

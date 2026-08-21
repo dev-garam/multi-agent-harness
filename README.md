@@ -809,6 +809,34 @@ Token usage (measured in 1/499 run(s))
 
 `measured in N/M`의 격차 자체가 지표입니다. usage를 노출하지 않는 provider나 구버전 manifest는 분모에서 빠지므로, 이 비율이 낮으면 "소비가 적은 것"이 아니라 "측정이 안 되고 있는 것"입니다. 판정 기준은 파싱 상태가 아니라 실제 값의 유무입니다.
 
+### 역할별 컨텍스트 선별
+
+기본 동작은 모든 앞 스텝 출력을 모든 스텝에 그대로 넘깁니다. 스텝 수에 대해 O(N²)로 늘어나고, 실측한 safe_fix run에서는 프롬프트 전송 총합의 71%가 중복 재전송이었습니다.
+
+`context.selection.enabled`를 켜면 각 역할이 프롬프트상 실제로 필요한 섹션만 받습니다.
+
+```json
+{
+  "context": {
+    "selection": { "enabled": true, "mode": "role-aware" }
+  }
+}
+```
+
+| 역할 | 받는 것 | 근거 |
+| --- | --- | --- |
+| `coder` | planner 출력, validation, inspection, 감독 지시 | "Use the planner output as guidance" |
+| `qa` | planner·coder 출력, validation, inspection | "Review the current diff and relevant test results" |
+| `reporter` | hermes·verifier 출력, validation, inspection, usage | hermes가 이미 앞 단계를 종합함 |
+| `verifier` | **전체** | 프롬프트가 planner·coder·QA·reviewer 출력을 명시적으로 요구 |
+| `hermes` | **전체** | 감독이 역할이므로 모든 증거가 필요 |
+
+기본값은 `false`입니다. 무엇을 빼도 되는지는 역할마다 다르고 잘못 빼면 판단 품질이 떨어지므로 옵트인으로 둡니다.
+
+실제 claude safe_fix run 출력으로 측정하면 **reporter에서 55.8%**(28,166 → 12,450 바이트), 전체 합계 기준 **18.0%** 줄어듭니다. `verifier`와 `hermes`가 전체를 받아야 하는 구조적 제약이 절감 상한을 만듭니다.
+
+다만 이건 프롬프트 크기 절감이고, 토큰 소비의 지배적 요인은 따로 있습니다. 실측 run의 `billedTokens` 319,510 중 86%가 캐시 조회였습니다. 스텝마다 새 CLI 프로세스가 뜨는 구조상 각 스텝이 repo 컨텍스트를 새로 적재하는 비용이 프롬프트 본문보다 큽니다.
+
 각 run은 `prompt-cache.json`도 생성합니다. 이 artifact는 prompt template hash, static project config hash, validation command hash를 담으며, 이후 prompt/context cache 최적화나 회귀 비교에 사용할 수 있습니다.
 
 manifest의 `runtime.contract`에는 local/Docker runner의 격리 수준, env 전달 정책, mount/network 정보가 기록됩니다.

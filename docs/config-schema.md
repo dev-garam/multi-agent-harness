@@ -162,6 +162,10 @@ These fields configure the harness runtime layer around agent, validation, and t
       "mode": "deterministic",
       "headBytes": 8192,
       "tailBytes": 24576
+    },
+    "selection": {
+      "enabled": false,
+      "mode": "role-aware"
     }
   },
   "retry": {
@@ -198,6 +202,7 @@ These fields configure the harness runtime layer around agent, validation, and t
 - `redaction.enabled` must be boolean. `mode` must be `mask` or `hash`.
 - `context.maxPreviousOutputBytes` and `context.maxStepOutputBytes` must be positive numbers.
 - `context.summarizer.enabled` enables deterministic head/tail context compaction. `mode` must be `deterministic` or `model`; current runtime safely records `model` config but uses deterministic compaction behavior.
+- `context.selection.enabled` turns on role-aware context selection. Default is `false`, which keeps the previous behavior of passing every prior step output to every step. When enabled, each role receives only the sections its prompt actually needs. `verifier` and `hermes` always receive the full context because their prompts require prior outputs verbatim.
 - `retry.agentRetries` and `retry.validationRetries` must be non-negative integers.
 - `retry.backoffMs` must be a non-negative number.
 - `retry.retryOnExitCodes` must be non-negative integers. Default is `[124]`.

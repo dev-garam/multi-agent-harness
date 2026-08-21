@@ -82,10 +82,15 @@ export function parseSupervisorDecision(output) {
   };
 }
 
-export function appendSupervisorInstructions(previousOutputs, decision) {
-  return `${previousOutputs}\n\n## hermes decision for ${decision.targetStep || 'reporter'}\n` +
+/** 컨텍스트 섹션 본문(제목 줄 포함, 선행 개행 없음). */
+export function supervisorInstructionsSection(decision) {
+  return `## hermes decision for ${decision.targetStep || 'reporter'}\n` +
     `status: ${decision.status}\n` +
     `nextAction: ${decision.nextAction}\n` +
     `reason: ${decision.reason || '(none)'}\n` +
     `instructions: ${decision.instructions || '(none)'}`;
+}
+
+export function appendSupervisorInstructions(previousOutputs, decision) {
+  return `${previousOutputs}\n\n${supervisorInstructionsSection(decision)}`;
 }
