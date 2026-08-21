@@ -272,7 +272,11 @@ reporter가 결정론이 되면 남는 LLM 스텝은 hermes뿐인데, hermes는 
 
 1. **요구하지 않은 설계 개선을 했다.** `cleanRuns`에 `runsDir` 파라미터를 추가했다. 요구사항에 없었지만 임시 디렉터리로 테스트하려면 필요하다. 테스트를 쓰라는 요구가 설계 개선으로 이어진 셈이다.
 2. **생성된 테스트가 요구 범위를 덮었다.** status 없음 / finishedAt 없음 / 정상 / manifest 없음 / manifest 파싱 실패, 그리고 console 출력까지 검증한다.
-3. **worktree 모드의 마찰:** 결과가 `runs/<runId>/worktree`에 남고 원본 반영은 사람이 한다. 이번에는 파일 3개를 직접 복사했다. 안전한 기본값의 대가지만, 반복하면 부담이 된다. patch 모드도 마찬가지로 사람이 적용해야 한다.
+3. **worktree 모드의 마찰:** 결과가 `runs/<runId>/worktree`에 남고 원본 반영은 사람이 한다. 이번에는 파일 3개를 직접 복사했다.
+
+   후속 확인 결과 **이 마찰의 원인은 기능 부재가 아니라 문서 부재였다.** `finalizeWorkspace`가 이미 `changes.patch`를 만들고 있었고(`git add -N`으로 새 파일까지 포함), 실제로 그 run의 patch에 3개 파일이 전부 들어 있었다. `git apply` 한 번이면 됐을 일을 파일 복사로 했다. README에 적용 방법이 없어 몰랐던 것이다.
+
+   → `harness apply [--latest|<runId>]`를 추가하고 문서화했다. 되돌리기 어려운 작업이라 기본은 보수적이다: 적용 전 `git apply --check` 검증, dirty repo 거부(`--force`로 우회), `--dry-run`, direct 모드 거부. 적용 후 커밋은 하지 않는다.
 4. **provider별 usage 노출 차이가 드러났다.** codex는 `billedTokens`만 채우고 `costUsd`·`turns`는 비운다(claude는 전부 채운다). 오늘 만든 비용 분해 지표가 provider에 따라 부분적으로만 작동한다는 뜻이다. `costUsd` 기반 비교는 provider를 섞으면 성립하지 않는다.
 
 교훈은 기존 것과 일치한다 — **명확·안전·독립적인 작업에는 dogfooding이 잘 맞는다.** 이번 과제는 범위가 한 함수와 새 테스트 파일 하나로 닫혀 있었고, 판정 기준(validation 통과)이 결정론적이었다.

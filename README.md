@@ -114,6 +114,7 @@ harness hermes report
 harness run --repo <path> [options] "<request>"
 harness doctor [--repo <path>] [--agent <provider>]
 harness show [--latest|<runId>] [--json]
+harness apply [--latest|<runId>] [--repo <path>] [--dry-run] [--force]
 harness hermes <subcommand> [options] [request]
 harness eval [--repo <path>] [--json]
 harness init-project [--repo <path>] [--refresh] [--interactive] [--apply] [--agent-provider <provider>] [--agent-routing <targets>]
@@ -141,6 +142,7 @@ harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
 - `run`: 파이프라인을 실행합니다.
 - `doctor`: 에이전트 CLI 연결 상태와 인자 계약을 확인합니다.
 - `show`: `runs/<runId>/manifest.json`을 사람이 읽기 좋은 요약 또는 JSON summary로 보여줍니다.
+- `apply`: 격리 실행(`worktree`/`patch`)의 결과를 원본 repo에 적용합니다.
 - `hermes`: Hermes top-level 운영 명령을 실행합니다.
 - `eval`: 대상 repo의 `.harness.json`과 선택적 `.harness-eval.json`을 기준으로 하네스 준비도와 fixture 기대값을 점검하고 `.harness/eval/`에 결과를 남깁니다.
 - `init-project`: 대상 프로젝트를 읽어 `.harness.json` 기본 파일을 만들고 package scripts/git branch를 가능한 범위에서 자동 반영합니다.
@@ -183,7 +185,26 @@ harness run --repo . --workspace-mode patch "작업 요청"
 
 `worktree`와 `patch` 모드는 git repo와 유효한 `HEAD` commit이 필요합니다. 원본 repo의 uncommitted 변경은 isolated workspace에 자동 반영되지 않습니다.
 
-`patch` 모드는 run 종료 시 worktree를 제거하고 patch artifact만 남깁니다. `worktree` 모드는 사람이 산출물을 확인할 수 있도록 worktree를 남깁니다. 오래된 worktree 산출물은 아래처럼 정리할 수 있습니다.
+`patch` 모드는 run 종료 시 worktree를 제거하고 patch artifact만 남깁니다. `worktree` 모드는 사람이 산출물을 확인할 수 있도록 worktree를 남깁니다.
+
+#### 결과를 원본에 적용하기
+
+두 모드 모두 run이 끝날 때 `runs/<runId>/changes.patch`를 남깁니다. 새로 만든 파일도 `git add -N`으로 포함되므로 이 파일 하나에 변경 전체가 들어갑니다.
+
+```sh
+harness apply --latest --dry-run   # 무엇이 바뀔지만 확인
+harness apply --latest             # 적용
+harness apply <runId> --repo /other/path
+```
+
+되돌리기 어려운 작업이라 기본이 보수적입니다.
+
+- 적용 전에 항상 `git apply --check`로 검증합니다. run 이후 원본이 바뀌어 충돌하면 멈춥니다.
+- 원본에 커밋되지 않은 변경이 있으면 멈춥니다. 적용 결과가 기존 변경과 섞이면 무엇이 하네스가 만든 것인지 구분할 수 없기 때문입니다. `--force`로 진행할 수 있습니다.
+- `--dry-run`은 아무것도 쓰지 않고 대상 파일 목록만 보여줍니다.
+- `direct` 모드 run은 이미 원본에 쓰였으므로 적용 대상이 아니며, 그렇게 알려줍니다.
+
+적용 후에도 커밋은 하지 않습니다. 검토는 사람 몫입니다. 오래된 worktree 산출물은 아래처럼 정리할 수 있습니다.
 
 ```sh
 harness clean --worktrees --days 7 --keep 5

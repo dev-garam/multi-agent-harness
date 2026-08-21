@@ -8,6 +8,7 @@ import { runWatch } from './watch.js';
 import { runHermesCommand } from './hermes.js';
 import { runPipeline } from './runner.js';
 import { showRun } from './show.js';
+import { applyRun, formatApplyResult } from './apply.js';
 import { runHarnessEval } from './eval.js';
 import { loadRunManifests, computeMetrics, formatMetrics } from './metrics.js';
 
@@ -19,6 +20,7 @@ function usage() {
     '  harness init-project [--repo <path>] [--refresh] [--interactive] [--apply] [--agent-provider <provider>] [--agent-routing <targets>]',
     '  harness doctor [--repo <path>] [--agent <provider>]',
     '  harness show [--latest|<runId>] [--json]',
+    '  harness apply [--latest|<runId>] [--repo <path>] [--dry-run] [--force]',
     '  harness hermes <subcommand> [options] [request]',
     '  harness eval [--repo <path>] [--json]',
     '  harness metrics [--json]',
@@ -107,6 +109,8 @@ function parseArgs(args) {
       options.runnerImage = args[++index];
     } else if (arg === '--dry-run') {
       options.dryRun = true;
+    } else if (arg === '--force') {
+      options.force = true;
     } else if (arg === '--refresh') {
       options.refresh = true;
     } else if (arg === '--interactive') {
@@ -217,6 +221,18 @@ export async function main(args) {
       runId,
       json: parsed.options.json === true
     }));
+    return;
+  }
+
+  if (parsed.command === 'apply') {
+    const runId = parsed.options.latest ? '--latest' : parsed.request || '--latest';
+    const result = await applyRun({
+      runId,
+      repo: parsed.options.repo || null,
+      dryRun: Boolean(parsed.options.dryRun),
+      force: Boolean(parsed.options.force)
+    });
+    console.log(formatApplyResult(result));
     return;
   }
 

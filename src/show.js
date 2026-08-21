@@ -24,7 +24,7 @@ async function listRunIds() {
     .sort();
 }
 
-async function resolveRunId(runId) {
+export async function resolveRunId(runId) {
   if (runId && runId !== '--latest') {
     return runId;
   }
