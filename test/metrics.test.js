@@ -207,6 +207,35 @@ assert.equal(usageMetrics.usage.typicalRun.maxBilledTokens, 680000);
 assert.equal(computeMetrics([]).usage.typicalRun.runs, 0);
 assert.equal(computeMetrics([]).usage.typicalRun.medianBilledTokens, 0);
 
+// 비용 미노출 provider가 섞이면 그 사실을 드러낸다. 토큰은 세지만 비용은 못 센다.
+const mixedMetrics = computeMetrics([
+  {
+    status: 'succeeded', pipeline: 'quick_fix', agent: { provider: 'claude' }, steps: [],
+    usageSummary: {
+      parsedUsageEntries: 1, billedTokens: 100000, costUsd: 0.2, costAvailable: true,
+      entries: [{ stepId: 'coder', billedTokens: 100000, costUsd: 0.2, turns: 3 }]
+    }
+  },
+  {
+    // codex형: 토큰만 있고 비용은 null.
+    status: 'succeeded', pipeline: 'quick_fix', agent: { provider: 'codex' }, steps: [],
+    usageSummary: {
+      parsedUsageEntries: 1, billedTokens: 500000, costUsd: 0, costAvailable: false,
+      entries: [{ stepId: 'coder', billedTokens: 500000, costUsd: null, turns: null }]
+    }
+  }
+]);
+assert.equal(mixedMetrics.usage.runsWithoutCost, 1);
+assert.deepEqual(mixedMetrics.usage.providersWithoutCost, ['codex']);
+// 토큰은 두 run 모두 집계된다.
+assert.equal(mixedMetrics.usage.billedTokens, 600000);
+const mixedText = formatMetrics(mixedMetrics);
+assert.match(mixedText, /1 run\(s\) report no cost \(codex\)/);
+assert.match(mixedText, /their tokens count, their cost does not/);
+
+// 전부 비용을 보고하면 Note가 나오지 않는다(노이즈 방지).
+assert.equal(/report no cost/.test(formatMetrics(usageMetrics)), false);
+
 // 포맷 출력.
 const usageText = formatMetrics(usageMetrics);
 assert.match(usageText, /Token usage \(measured in 2\/4 run\(s\)\)/);

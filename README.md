@@ -1032,6 +1032,25 @@ Cost (API-equivalent): ~$0.3665 (estimate; not a bill if your provider uses a su
 
 **`billedTokens`가 과금 모델 중립 지표입니다.** 토큰은 구독이든 API든 실제 소모량이므로, 요금제와 무관하게 비교할 수 있습니다.
 
+### provider가 알려주지 않는 것
+
+provider마다 노출하는 항목이 다릅니다. claude는 토큰·비용·turn을 모두 주지만, codex는 **토큰만** 줍니다.
+
+```text
+Agent turns: not reported by this provider
+Cost: not reported by codex (billed tokens are still counted)
+```
+
+노출하지 않는 값을 0으로 표시하면 "쓰지 않았다"로 오해됩니다. 하네스는 **모른다는 것과 0인 것을 구분해서** 표시합니다.
+
+`harness metrics`에서 여러 provider가 섞이면 비용 수치를 그대로 비교하면 안 되므로 그 사실을 함께 알립니다.
+
+```text
+  Note:  1 run(s) report no cost (codex); their tokens count, their cost does not.
+```
+
+이 경우 `billedTokens`로 비교하세요.
+
 ### 이번 run이 큰 편인가
 
 절대 금액은 요금제마다 의미가 다르지만, **자기 이력 대비**는 누구에게나 통합니다. `harness metrics`가 사용자 자신의 분포를 기준선으로 줍니다.
