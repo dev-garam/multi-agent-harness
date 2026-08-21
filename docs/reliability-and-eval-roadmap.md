@@ -65,6 +65,22 @@
 
 둘 다 validation pass/fail만으로는 도달 불가능한 판단이다. **다만 1번은 절반이 지적대로다** — `changedFiles: 0`이 이미 manifest에 있었으므로 LLM 없이 잡을 수 있었다. 이를 값싼 룰 게이트로 구현했다(아래 no-change 게이트).
 
+### 중단 복구 점검 (2026-08-21)
+
+"어디선가 망가져 멈추면 찾거나 복구하는 로직이 없고 무한루프 위험이 있다"는 지적을 코드로 확인했다. 결과가 갈렸다.
+
+**무한루프는 막혀 있다.** `assertBudget`이 agent/validation 호출마다 경과 시간(`maxRuntimeMs`)과 호출 수(`maxAgentSteps`/`maxProviderCalls`/`maxValidationCommands`)를 검사하고, supervisor 루프는 `maxSupervisorTurns`와 `maxStepRetries`로 닫혀 있으며, 승격은 `escalatedToSafeFix` 플래그로 run당 1회다. agent/validation은 각각 timeout 후 SIGTERM → SIGKILL로 끝난다.
+
+한계: `maxRuntimeMs`는 다음 agent/validation 호출 시점에만 검사되므로 초과를 넘어선 뒤에 잡는다. 실시간 중단이 아니다(agent timeout이 실제 상한 역할을 한다).
+
+**복구는 실제로 뚫려 있었다.** 두 군데다.
+
+1. **큐에 갇힌 task.** `claimPendingTask`가 pending → running으로 rename해 선점한 뒤 프로세스가 죽으면 task가 running에 영구히 남는다. 다음 tick은 pending만 보므로 그 task는 처리되지 않는다. 오류가 나지 않고 tick이 계속 idle을 보고하는 **조용한 정지**다. 자율 운영(주기적 tick)에서 가장 위험한 형태다. → `reclaimStaleRunning`을 추가하고 tick 시작 시 호출한다. 회수는 failed로 보낸다(자동 재실행하면 죽은 run이 이미 바꾼 파일에 중복 적용될 수 있다).
+
+2. **끝나지 않은 run.** 최종 status나 finishedAt이 없는 manifest가 실제로 2건 있었다(`2026-07-06_142509_962`, `2026-07-06_143844_338` — 둘 다 hermes까지 성공하고 reporter 전에 종료). 영구히 `unknown`으로 남아 지표를 오염시킨다. → metrics에 `interruptedRuns`로 따로 센다.
+
+남은 후속: 중단된 run의 워크스페이스(worktree) 정리는 `harness clean --worktrees`로 수동 처리해야 한다. run 단위 finally는 프로세스가 SIGKILL되면 실행되지 않는다.
+
 ### ⏳ 남음 (후속)
 
 | ID | 작업 | 우선순위 / 비고 |
