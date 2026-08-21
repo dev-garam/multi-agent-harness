@@ -44,21 +44,25 @@ function runDirFor(name) {
 
 try {
   // -------------------------------------------------------------------------
-  // 설정 해석: 기본은 off(기존 동작 유지), 명시할 때만 켜진다.
+  // 설정 해석: 기본 on. 격리가 기본인 이상 작업 중 변경이 보이지 않으면
+  // "왜 내 수정이 반영 안 되지"가 되어 격리 자체를 못 쓰게 된다. 두 기본값은 짝이다.
   // -------------------------------------------------------------------------
-  assert.equal(carryUncommittedFromConfig({}, {}), false);
-  assert.equal(carryUncommittedFromConfig({}, { workspace: {} }), false);
+  assert.equal(carryUncommittedFromConfig({}, {}), true);
+  assert.equal(carryUncommittedFromConfig({}, { workspace: {} }), true);
   assert.equal(carryUncommittedFromConfig({}, { workspace: { carryUncommitted: true } }), true);
+  // 명시적으로 끌 수 있다.
+  assert.equal(carryUncommittedFromConfig({}, { workspace: { carryUncommitted: false } }), false);
+  // true가 아닌 값은 켜지 않는다(오타가 조용히 통과하지 않게).
   assert.equal(carryUncommittedFromConfig({}, { workspace: { carryUncommitted: 'yes' } }), false);
   // CLI 옵션이 설정보다 우선한다(양방향).
-  assert.equal(carryUncommittedFromConfig({ carryUncommitted: true }, {}), true);
+  assert.equal(carryUncommittedFromConfig({ carryUncommitted: true }, { workspace: { carryUncommitted: false } }), true);
   assert.equal(
     carryUncommittedFromConfig({ carryUncommitted: false }, { workspace: { carryUncommitted: true } }),
     false
   );
 
   // -------------------------------------------------------------------------
-  // 기본(off): worktree는 HEAD만 본다.
+  // carryUncommitted를 끄면 worktree는 HEAD만 본다.
   // -------------------------------------------------------------------------
   const plainRepo = makeRepo();
   cleanupPaths.push(plainRepo);

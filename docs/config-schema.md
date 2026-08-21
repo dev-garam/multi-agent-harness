@@ -419,6 +419,14 @@ Plan names (for example `max-5x`) are deliberately not accepted. Plan structures
 
 `billedTokens` is the billing-model-neutral figure: it counts real consumption regardless of how the provider charges for it.
 
+### workspaceMode
+
+`worktree` (default), `patch`, or `direct`.
+
+The default is isolated: a failed run should not dirty the original working tree, and applying the result is one extra step (`harness apply`) rather than a risk.
+
+Isolation needs a git work tree and a valid `HEAD` commit. What happens when that is unavailable depends on how the mode was chosen. If isolation came from the **default**, the run falls back to `direct` and says so — a default must not block entry for non-git projects. If the mode was **requested explicitly**, the run fails instead, because silently running unisolated after isolation was asked for is worse. A fallback is recorded as `workspace.fallbackFrom` and `workspace.fallbackReason` in the manifest.
+
 ### workspace.carryUncommitted
 
 Isolated workspaces (`worktree`, `patch`) are created from `HEAD`, so uncommitted work in the original repo is invisible to the agent by default. That breaks the common flow of editing something and handing part of it to the harness mid-change.
@@ -427,4 +435,4 @@ Set `workspace.carryUncommitted: true` (or pass `--carry-uncommitted`) to copy t
 
 The original repo is never modified, including its index: tracked changes are taken with `git diff HEAD --binary` rather than `git add`, and untracked files are copied using `--exclude-standard` so ignored paths such as `node_modules` are left behind. If carrying fails the workspace is removed and the run stops, because silently running against `HEAD` while the user believes their edits were included is the worst outcome.
 
-Default is `false`.
+Default is `true`, paired with the isolated default `workspaceMode`. Isolation whose agent cannot see your in-progress edits is isolation you cannot use, so the two defaults move together. Set it to `false` to pin the workspace strictly to `HEAD`.

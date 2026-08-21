@@ -166,18 +166,25 @@ harness clean [--days <n>] [--keep <n>] [--dry-run] [--worktrees]
 
 ### Workspace Mode
 
-기본 실행 모드는 `direct`입니다. 이 모드는 기존처럼 대상 repo에서 agent와 validation을 직접 실행합니다.
+**기본 실행 모드는 `worktree`입니다.** 실패한 run이 원본 working tree를 더럽히지 않는 편이, 결과를 적용하는 단계가 하나 늘어나는 것보다 낫기 때문입니다. 적용은 [`harness apply`](#결과를-원본에-적용하기)가 합니다.
 
 ```sh
-harness run --repo . --workspace-mode direct "작업 요청"
+harness run --repo . "작업 요청"                          # worktree (기본)
+harness run --repo . --workspace-mode direct "작업 요청"   # 원본에서 직접
+harness run --repo . --workspace-mode patch "작업 요청"    # patch만 남김
 ```
 
-원본 working tree를 바로 건드리고 싶지 않으면 `worktree` 또는 `patch`를 사용할 수 있습니다.
+격리 모드는 git work tree와 유효한 `HEAD` commit을 요구합니다. 조건이 맞지 않으면 어떻게 되는지가 **명시 여부에 따라 다릅니다.**
 
-```sh
-harness run --repo . --workspace-mode worktree "작업 요청"
-harness run --repo . --workspace-mode patch "작업 요청"
-```
+- **기본값으로 격리가 선택된 경우** — `direct`로 내려가고 그 사실을 알립니다. 기본값이 git 아닌 프로젝트의 진입 자체를 막으면 안 되기 때문입니다.
+
+  ```text
+  Workspace: fell back to direct (default isolation unavailable: repo requires a git work tree)
+  ```
+
+- **`--workspace-mode worktree`처럼 직접 요청한 경우** — 에러로 멈춥니다. 격리를 요청했는데 조용히 격리 없이 도는 것이 더 나쁩니다.
+
+폴백이 일어나면 `manifest.workspace.fallbackFrom`과 `fallbackReason`에 기록됩니다.
 
 - `direct`: 대상 repo에서 직접 실행합니다.
 - `worktree`: `runs/<runId>/worktree`에 git worktree를 만들고 그 안에서 실행합니다. 변경 결과는 worktree에 남습니다.
@@ -231,7 +238,7 @@ harness clean --worktrees --days 7 --keep 5 --dry-run
 
 ### Runtime Runner
 
-기본 runner는 `local`입니다. 즉 agent CLI와 validation command는 현재 머신의 child process로 실행됩니다.
+기본 runner는 `local`입니다. 즉 agent CLI와 validation command는 현재 머신의 child process로 실행됩니다. workspace 격리와 달리 runner 격리(Docker)는 이미지 준비가 필요하므로 기본값으로 두지 않습니다.
 
 ```sh
 harness run --repo . --runner local "작업 요청"
