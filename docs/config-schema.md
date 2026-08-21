@@ -58,6 +58,7 @@ The harness validates this file before running agents. Invalid config stops `har
   "command": "node",
   "versionArgs": ["--version"],
   "outputMode": "file",
+  "model": "claude-haiku-4-5-20251001",
   "args": ["./mock-agent.cjs", "{{stepId}}", "{{finalPath}}"]
 }
 ```
@@ -67,11 +68,31 @@ The harness validates this file before running agents. Invalid config stops `har
 - `versionArgs`: optional array of strings.
 - `outputMode`: optional `file` or `stdout`.
 - `defaultTimeoutMs`: optional positive number.
+- `model`: optional model id passed to the provider CLI as `--model`. A `model` declared on the pipeline step wins over this one. Providers that do not support model selection ignore it (`capabilities.supportsModel`).
 - `args`: optional string or array of strings.
 
 Built-in providers are `codex`, `claude`, and `antigravity`. Unknown providers must set `command`.
 
 Custom `command` and `args` execute through the selected runtime runner.
+
+An agent object can be given per role, so different steps can run on different models:
+
+```json
+{
+  "agent": { "provider": "claude" },
+  "agents": {
+    "coder": { "provider": "claude", "model": "claude-opus-5" },
+    "reporter": { "provider": "claude", "model": "claude-haiku-4-5-20251001" }
+  },
+  "supervisor": {
+    "agent": { "provider": "claude", "model": "claude-opus-5" }
+  }
+}
+```
+
+`agents.<stepId>` overrides the default agent for that step, and `supervisor.agent` does the same for `hermes`. Roles without an entry use the top-level `agent`.
+
+Note that measured cost is dominated by supervision and reporting rather than by the code change itself, so lowering the model on those roles is where the saving is. Supervision quality is the thing being traded away there, and the harness has no golden set for supervisor judgement quality — only for decision *parsing*. Verify any such change against your own work before relying on it.
 
 ## Runtime Runner
 
