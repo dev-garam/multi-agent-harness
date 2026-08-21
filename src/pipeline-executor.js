@@ -9,7 +9,7 @@ import { runValidationCommand, validationCommandsFromProjectConfig } from './val
 import { trustBoundarySummary } from './trust.js';
 import { inspectChanges, inspectionSummary } from './inspection.js';
 import { evaluateChangeRisk, evaluatePolicy, evaluateProtectedBranchPolicy, policyFromProjectConfig } from './policy.js';
-import { carryUncommittedFromConfig, finalizeWorkspace, prepareWorkspace, workspaceModeFromOptions } from './workspace.js';
+import { carryUncommittedFromConfig, finalizeWorkspace, prepareWorkspace, workspaceModeFromOptions, workspaceModeIsExplicit } from './workspace.js';
 import { parseReporterSummary } from './reporter-summary.js';
 import { buildDeterministicReport, reporterModeFromProjectConfig } from './reporter-deterministic.js';
 import { appendSupervisorInstructions, parseSupervisorDecision, supervisorInstructionsSection } from './supervisor.js';
@@ -333,7 +333,8 @@ export class PipelineExecutor {
         runDir: this.runDir,
         mode: this.workspaceMode,
         dryRun: this.options.dryRun,
-        carryUncommitted: carryUncommittedFromConfig(this.options, this.projectConfig)
+        carryUncommitted: carryUncommittedFromConfig(this.options, this.projectConfig),
+        explicitMode: workspaceModeIsExplicit(this.options, this.projectConfig)
       });
     } catch (error) {
       const failedManifest = {
@@ -358,6 +359,14 @@ export class PipelineExecutor {
       await writeText(path.join(this.runDir, 'request.txt'), this.redactedRequest + '\n');
       await saveManifest(this.runDir, failedManifest);
       throw error;
+    }
+    // 기본 격리가 불가능해 direct로 내려갔다면 실제 모드를 반영한다. 이후의
+    // 보호 브랜치 판단 등이 실제 실행 방식과 어긋나면 안 된다.
+    if (this.workspace.fallbackFrom) {
+      this.workspaceMode = this.workspace.mode;
+      console.error(
+        `Workspace: fell back to ${this.workspace.mode} (${this.workspace.fallbackReason})`
+      );
     }
     this.executionRepo = this.workspace.executionRepo;
     this.runtime = runtimeRunnerFromOptions(this.options, this.projectConfig, {

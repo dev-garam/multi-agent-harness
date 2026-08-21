@@ -2,12 +2,31 @@ import path from 'node:path';
 import { copyFile, mkdir } from 'node:fs/promises';
 import { runCapture, writeText } from './fs-utils.js';
 
+// 기본은 격리 실행이다. 실패한 run이 원본 워킹 트리를 더럽히지 않는 편이,
+// 적용 단계가 하나 늘어나는 것보다 낫다(적용은 `harness apply`가 한다).
+const DEFAULT_WORKSPACE_MODE = 'worktree';
+
+function explicitWorkspaceMode(options = {}, projectConfig = {}) {
+  return options.workspaceMode || projectConfig.workspaceMode || projectConfig.workspace?.mode || null;
+}
+
 export function workspaceModeFromOptions(options = {}, projectConfig = {}) {
-  const mode = options.workspaceMode || projectConfig.workspaceMode || projectConfig.workspace?.mode || 'direct';
+  const mode = explicitWorkspaceMode(options, projectConfig) || DEFAULT_WORKSPACE_MODE;
   if (!['direct', 'worktree', 'patch'].includes(mode)) {
     throw new Error(`Unsupported workspace mode "${mode}". Available: direct, worktree, patch`);
   }
   return mode;
+}
+
+/**
+ * 사용자가 workspace mode를 직접 지정했는지.
+ *
+ * 격리 모드는 git work tree와 HEAD commit을 요구한다. 사용자가 명시적으로
+ * 요청했다면 조건이 안 맞을 때 에러를 내야 하지만, 기본값이라면 에러 대신
+ * direct로 내려간다. 기본값이 git 아닌 프로젝트의 진입 자체를 막으면 안 된다.
+ */
+export function workspaceModeIsExplicit(options = {}, projectConfig = {}) {
+  return Boolean(explicitWorkspaceMode(options, projectConfig));
 }
 
 export function carryUncommittedFromConfig(options = {}, projectConfig = {}) {
@@ -15,8 +34,12 @@ export function carryUncommittedFromConfig(options = {}, projectConfig = {}) {
     return options.carryUncommitted === true;
   }
   const configured = projectConfig.workspace?.carryUncommitted;
-  // 안전 기본값: 기존처럼 HEAD 기준으로만 격리한다.
-  return configured === true;
+  if (configured !== undefined) {
+    return configured === true;
+  }
+  // 기본 on. 격리가 기본인 이상, 작업 중 변경이 보이지 않으면 "왜 내 수정이
+  // 반영 안 되지"가 되어 격리 자체를 못 쓰게 된다. 두 기본값은 짝이다.
+  return true;
 }
 
 /**
@@ -66,7 +89,9 @@ async function carryUncommittedChanges({ repo, worktreePath, runDir }) {
   return result;
 }
 
-export async function prepareWorkspace({ repo, runDir, mode, dryRun, carryUncommitted = false }) {
+export async function prepareWorkspace({
+  repo, runDir, mode, dryRun, carryUncommitted = false, explicitMode = true
+}) {
   if (mode === 'direct' || dryRun) {
     return {
       mode,
@@ -78,14 +103,30 @@ export async function prepareWorkspace({ repo, runDir, mode, dryRun, carryUncomm
     };
   }
 
+  // 격리 조건을 못 맞출 때: 사용자가 직접 요청했으면 에러, 기본값이면 direct로 내려간다.
+  const fallback = (reason) => {
+    if (explicitMode) {
+      throw new Error(`Workspace mode "${mode}" requires ${reason}.`);
+    }
+    return {
+      mode: 'direct',
+      originalRepo: repo,
+      executionRepo: repo,
+      isolated: false,
+      prepared: true,
+      fallbackFrom: mode,
+      fallbackReason: `default isolation unavailable: repo requires ${reason}`
+    };
+  };
+
   const inside = await runCapture('git', ['rev-parse', '--is-inside-work-tree'], { cwd: repo });
   if (inside.exitCode !== 0 || inside.stdout !== 'true') {
-    throw new Error(`Workspace mode "${mode}" requires a git work tree.`);
+    return fallback('a git work tree');
   }
 
   const commit = await runCapture('git', ['rev-parse', 'HEAD'], { cwd: repo });
   if (commit.exitCode !== 0 || !commit.stdout) {
-    throw new Error(`Workspace mode "${mode}" requires a valid HEAD commit.`);
+    return fallback('a valid HEAD commit');
   }
 
   const worktreePath = path.join(runDir, 'worktree');

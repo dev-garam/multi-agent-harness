@@ -128,7 +128,18 @@ git 히스토리를 보면 `worktree`·`patch`·`docker`가 전부 `edfff72 "Har
 
 → `workspace.carryUncommitted`를 추가했다(옵트인). 원본을 건드리지 않고(인덱스 포함) 작업 중 변경과 untracked 파일을 격리 워크스페이스로 옮긴다. gitignore된 경로는 제외한다. 이제 "커밋하고 부르는" 흐름과 "작업 중에 부르는" 흐름이 모두 격리 모드에서 성립한다.
 
-기본값 전환 자체는 여전히 보류다. 걸림돌은 해소됐으므로 남은 것은 워크플로우 선택(실행 후 `harness apply` 한 단계가 추가되는 것)에 대한 사용자 판단이다.
+**기본값을 전환했다(2026-08-21).** `workspaceMode`를 `direct` → `worktree`로, `workspace.carryUncommitted`를 `false` → `true`로 바꿨다. 둘은 짝이다 — 격리가 기본인데 작업 중 변경이 보이지 않으면 격리 자체를 못 쓴다.
+
+전환을 막던 마지막 논거는 "명령이 3개로 늘어난다"였는데, 이것이 잘못된 프레이밍이었다. 사용자는 코딩 에이전트에게 작업을 맡기고 `harness run`도 `harness apply`도 그 에이전트가 실행한다. 즉 늘어나는 것은 **사용자 부담이 아니라 에이전트 작업량**이다. 그렇게 보면 `direct`를 유지할 실질적 이유가 남지 않는다.
+
+| 고려사항 | 판단 |
+|----------|------|
+| 명령이 늘어남 | 에이전트가 실행한다. 무관 |
+| 작업 중 변경이 안 보임 | `carryUncommitted`로 해소 |
+| worktree 디스크 누적 | `clean --worktrees`로 관리 |
+| 되돌리기 | **worktree가 압도적으로 낫다.** direct에서 하네스가 잘못 고치면 사용자의 작업 중 변경과 섞여 되돌리기 어렵다. worktree는 apply하지 않으면 그만이다 |
+
+**폴백을 함께 넣었다.** 격리는 git work tree와 HEAD commit을 요구하는데, 기본값이 그 조건 때문에 진입을 막으면 안 된다. 기본값으로 격리가 선택됐고 조건이 안 맞으면 `direct`로 내려가고 그 사실을 알린다(`manifest.workspace.fallbackFrom`). 반면 사용자가 `--workspace-mode worktree`처럼 직접 요청했는데 조건이 안 맞으면 에러다 — 격리를 요청했는데 조용히 격리 없이 도는 것이 더 나쁘다. `hermes-controller.test.js`가 git repo가 아닌 임시 디렉터리를 쓰는데, 이 폴백 덕에 기본값 전환 후에도 통과한다.
 
 ### 2라운드: 약한 모델로 재측정 (Haiku)
 
