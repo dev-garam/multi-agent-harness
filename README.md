@@ -183,7 +183,25 @@ harness run --repo . --workspace-mode patch "작업 요청"
 - `worktree`: `runs/<runId>/worktree`에 git worktree를 만들고 그 안에서 실행합니다. 변경 결과는 worktree에 남습니다.
 - `patch`: 임시 worktree에서 실행한 뒤 `runs/<runId>/changes.patch`를 만들고 worktree를 제거합니다.
 
-`worktree`와 `patch` 모드는 git repo와 유효한 `HEAD` commit이 필요합니다. 원본 repo의 uncommitted 변경은 isolated workspace에 자동 반영되지 않습니다.
+`worktree`와 `patch` 모드는 git repo와 유효한 `HEAD` commit이 필요합니다.
+
+#### 작업 중인 변경을 함께 넘기기
+
+격리 워크스페이스는 `HEAD` 기준으로 만들어지므로, 기본적으로 **커밋하지 않은 변경은 보이지 않습니다.** 뭔가 고치다가 일부를 하네스에 맡기면 하네스는 고치기 전 파일을 보고 작업하게 됩니다.
+
+```json
+{
+  "workspace": { "carryUncommitted": true }
+}
+```
+
+켜면 원본의 커밋되지 않은 변경을 격리 워크스페이스로 옮긴 뒤 실행합니다. `--carry-uncommitted` / `--no-carry-uncommitted`로 run 단위 지정도 됩니다.
+
+- tracked 변경은 `git diff HEAD --binary`로 떠서 적용합니다. **원본에서 `git add`를 하지 않으므로 인덱스가 오염되지 않습니다.**
+- untracked 파일은 `--exclude-standard` 기준으로 복사합니다. `.gitignore`된 것(`node_modules` 등)은 따라오지 않습니다.
+- 옮기기에 실패하면 워크스페이스를 정리하고 런을 중단합니다. 반영됐다고 믿는데 실제로는 아닌 상태가 가장 나쁘기 때문입니다.
+
+기본값은 `false`입니다(기존 동작 유지).
 
 `patch` 모드는 run 종료 시 worktree를 제거하고 patch artifact만 남깁니다. `worktree` 모드는 사람이 산출물을 확인할 수 있도록 worktree를 남깁니다.
 
