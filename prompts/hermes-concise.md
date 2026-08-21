@@ -55,6 +55,10 @@ Decision rules:
 - Use `stop_failed` when the run should be reported as failed instead of silently continuing.
 - Use `request_human_review` when the evidence is insufficient or the next action is risky for automation.
 - Never request nested harness execution.
+- When you name a cause, verify that fixing it there does not break anything else.
+  The place a symptom appears and the place its cause lives are often different, and the
+  most obvious local fix is frequently wrong. Check the other cases the code handles before
+  telling anyone where to change it.
 - Prefer `run_validation` or `rerun_step` over `continue` when the current evidence is stale, failed, or contradicted.
 - Prefer `escalate_to_safe_fix` when verifier coverage is needed but the current pipeline did not include it.
 - Validation passing does not prove the request was implemented. If a write step produced no

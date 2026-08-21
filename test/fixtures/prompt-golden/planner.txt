@@ -9,6 +9,9 @@ Identify likely files to inspect, risks, and validation commands.
 Separate facts you observed from assumptions.
 Do not invent files, commands, dependencies, APIs, or behavior that you have not verified.
 
+Before planning new code, check whether the capability already exists in the repository.
+A missing feature and an undocumented one look identical from the outside; grep before concluding.
+
 User request:
 README 문구를 정리해줘
 

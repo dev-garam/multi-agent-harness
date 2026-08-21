@@ -8,18 +8,18 @@
     },
     {
       "path": "prompts/hermes-concise.md",
-      "bytes": 3552,
-      "sha256": "3001f907147d397f8b3ac1aa2064646b447f949216d29101aa49377a02a823d8"
+      "bytes": 3853,
+      "sha256": "f93eecf9398fdefc86fb86f49a9afe9055b0f6724916257ab7a389a0c7e6a96e"
     },
     {
       "path": "prompts/hermes.md",
-      "bytes": 2948,
-      "sha256": "d4b3c88450363c3affe957965ef9f63be50cfbcc7ad9074140f09da2796785e1"
+      "bytes": 3249,
+      "sha256": "5c054afd3367b85c9700147364902f999134bf98571963db4a8b31cea1762b81"
     },
     {
       "path": "prompts/planner.md",
-      "bytes": 787,
-      "sha256": "9de50a127622dd449228770b35f960591c72fbe53d51f1649857eed29e319f25"
+      "bytes": 976,
+      "sha256": "82f089726ca1ba9958362deb8e93c2ba308f25ae0a2d6eda3de734f0d55cc545"
     },
     {
       "path": "prompts/qa.md",
